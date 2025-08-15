@@ -2,9 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import ActivatePlan from "../components/ActivatePlan.jsx";
 
 /**
- * Dashboard Utente – quick polish grafico + calendario sistemato.
- * Non cambia la logica già esistente.
+ * Dashboard Utente – mock interattivo per testare UX:
+ * - CTA se non c'è una scheda attiva (selettore + "piano veloce")
+ * - Calendario cliccabile con pannello per segnarlo completato + nota
+ * - Riepilogo settimanale aggiornato
+ *
+ * Non richiede backend; i completamenti aggiunti vivono in stato locale
+ * (unito ai workoutLogs eventualmente passati dal parent).
  */
+
 export default function UserDashboard(props) {
   // ---- mapping tollerante dei props ----
   const templates = props.templates || props.myTemplates || [];
@@ -17,8 +23,15 @@ export default function UserDashboard(props) {
   const activePlan = props.activePlanForUser || props.activePlan || null;
   const setActivePlanForUser =
     props.setActivePlanForUser || props.onSetActivePlan || (() => {});
-  const workoutLogs = props.workoutLogs || [];
+  const workoutLogsProp = props.workoutLogs || [];
   const currentUser = props.currentUser || null;
+
+  // ---- mock: logs locali (per marcare giorni completati senza toccare il parent) ----
+  const [logsLocal, setLogsLocal] = useState([]);
+  const allLogs = useMemo(
+    () => [...workoutLogsProp, ...logsLocal],
+    [workoutLogsProp, logsLocal]
+  );
 
   // ------ Hero: nome scheda attiva ------
   const activeName = useMemo(() => {
@@ -32,28 +45,55 @@ export default function UserDashboard(props) {
     return activePlan?.name || null;
   }, [activePlan, templates, assignedPlans]);
 
-  // ------ Riepilogo settimanale (placeholder) ------
-  const weekly = useMemo(() => {
-    return [
-      { g: "Petto", setsDone: 0, setsTarget: 0 },
-      { g: "Schiena", setsDone: 0, setsTarget: 0 },
-      { g: "Gambe", setsDone: 0, setsTarget: 0 },
-      { g: "Spalle", setsDone: 0, setsTarget: 0 },
-      { g: "Bicipiti", setsDone: 0, setsTarget: 0 },
-      { g: "Tricipiti", setsDone: 0, setsTarget: 0 },
-      { g: "Core", setsDone: 0, setsTarget: 0 },
-      { g: "Altro", setsDone: 0, setsTarget: 0 },
-    ];
-  }, [workoutLogs, activePlan]);
+  // ------ Riepilogo settimanale (serie fatte = giorni completati nella settimana) ------
+  const weekly = useWeeklySummary(allLogs);
 
   // ------ Calendario ------
   const [viewMode, setViewMode] = useState(
     () => localStorage.getItem("cf:cal:view") || "month"
   ); // "week" | "month"
-  const today = new Date();
   useEffect(() => {
     localStorage.setItem("cf:cal:view", viewMode);
   }, [viewMode]);
+
+  const today = new Date();
+
+  // ------ Pannello Giorno selezionato ------
+  const [panel, setPanel] = useState(null); // { iso, label, note }
+  const isDoneDate = useMemo(() => {
+    const set = new Set(allLogs.map((l) => l?.date || l?.day || ""));
+    return (iso) => set.has(iso);
+  }, [allLogs]);
+
+  function markDone(iso, note) {
+    // se in futuro il parent ci passa un setWorkoutLogs, usalo qui
+    setLogsLocal((prev) => {
+      if (prev.some((l) => l.date === iso)) return prev; // idempotente
+      return [...prev, { date: iso, note: note || "" }];
+    });
+    setPanel(null);
+  }
+
+  function clearDone(iso) {
+    setLogsLocal((prev) => prev.filter((l) => l.date !== iso));
+    setPanel(null);
+  }
+
+  // ------ CTA: crea piano veloce ------
+  function createQuickPlan() {
+    const quick = {
+      id: "quick-" + Date.now(),
+      name: "Piano Veloce",
+      days: [
+        { day: 1, title: "Giorno 1", exercises: [] },
+        { day: 2, title: "Giorno 2", exercises: [] },
+        { day: 3, title: "Giorno 3", exercises: [] },
+      ],
+    };
+    // attiva con solo id (rispetta la firma che già usi)
+    setActivePlanForUser(quick.id);
+    // (opzionale) potresti salvarlo in localStorage se vuoi riusarlo
+  }
 
   return (
     <div className="container" style={{ padding: 16 }}>
@@ -81,18 +121,31 @@ export default function UserDashboard(props) {
         </div>
       </section>
 
-      {/* ATTIVA UNA SCHEDA */}
-      <section style={{ marginBottom: 16 }}>
-        <ActivatePlan
-          templates={templates}
-          assignedPlans={assignedPlans}
-          activePlan={activePlan}
-          onActivate={({ id /*, source*/ }) => {
-            setActivePlanForUser(id);
-          }}
-          onClear={() => setActivePlanForUser(null)}
-        />
-      </section>
+      {/* SE NON C'È UNA SCHEDA ATTIVA → CTA veloci */}
+      {!activePlan && (
+        <section className="card" style={{ marginBottom: 16 }}>
+          <div className="font-medium" style={{ marginBottom: 8 }}>
+            Inizia subito
+          </div>
+          <div className="pill" style={{ gap: 10, flexWrap: "wrap" }}>
+            <span className="text-slate-600" style={{ fontSize: 13 }}>
+              Attiva un piano:
+            </span>
+            {/* 1) Selettore già pronto */}
+            <ActivatePlan
+              templates={templates}
+              assignedPlans={assignedPlans}
+              activePlan={activePlan}
+              onActivate={({ id }) => setActivePlanForUser(id)}
+              onClear={() => setActivePlanForUser(null)}
+            />
+            {/* 2) Piano veloce */}
+            <button className="btn btn-primary" onClick={createQuickPlan}>
+              Crea un piano veloce
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* RIEPILOGO SETTIMANALE */}
       <section style={{ marginBottom: 16 }}>
@@ -118,21 +171,32 @@ export default function UserDashboard(props) {
 
       {/* CALENDARIO */}
       <section>
-        <div className="flex items-center" style={{ display:"flex", gap: 8, marginBottom: 8 }}>
+        <div
+          className="flex items-center"
+          style={{ display: "flex", gap: 8, marginBottom: 8 }}
+        >
           <h2 className="font-semibold" style={{ fontSize: 18, marginRight: "auto" }}>
             Calendario allenamenti
           </h2>
           <div className="pill">
             <button
               className="btn btn-ghost"
-              style={{ padding: "4px 10px", fontSize: 13, ...(viewMode === "week" ? { border: "1px solid #cbd5e1" } : {}) }}
+              style={{
+                padding: "4px 10px",
+                fontSize: 13,
+                ...(viewMode === "week" ? { border: "1px solid #cbd5e1" } : {}),
+              }}
               onClick={() => setViewMode("week")}
             >
               Settimana
             </button>
             <button
               className="btn btn-ghost"
-              style={{ padding: "4px 10px", fontSize: 13, ...(viewMode === "month" ? { border: "1px solid #cbd5e1" } : {}) }}
+              style={{
+                padding: "4px 10px",
+                fontSize: 13,
+                ...(viewMode === "month" ? { border: "1px solid #cbd5e1" } : {}),
+              }}
               onClick={() => setViewMode("month")}
             >
               Mese
@@ -140,30 +204,82 @@ export default function UserDashboard(props) {
           </div>
         </div>
 
-        <CalendarBlock mode={viewMode} today={today} logs={workoutLogs} />
+        <CalendarBlock
+          mode={viewMode}
+          today={today}
+          logs={allLogs}
+          onPickDay={(d) => setPanel({ iso: d.iso, label: dayLabel(d) })}
+          isDoneDate={isDoneDate}
+        />
       </section>
+
+      {/* PANNELLO GIORNO */}
+      {panel && (
+        <DayPanel
+          iso={panel.iso}
+          label={panel.label}
+          defaultNote={
+            allLogs.find((l) => (l?.date || l?.day) === panel.iso)?.note || ""
+          }
+          isDone={isDoneDate(panel.iso)}
+          onClose={() => setPanel(null)}
+          onDone={(note) => markDone(panel.iso, note)}
+          onClear={() => clearDone(panel.iso)}
+        />
+      )}
     </div>
   );
 }
 
 /* =========================
-   CALENDARIO
-   Usa classi di index.css: .calendar, .cal-head, .cal-weekdays, .cal-cell, .cal-date, .cal-dot
+   RIEPILOGO settimanale mock
    ========================= */
+function useWeeklySummary(allLogs) {
+  const startOfWeek = getWeekStart(new Date()); // lunedì
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setDate(startOfWeek.getDate() + 6);
 
-function CalendarBlock({ mode = "month", today, logs }) {
-  const doneDates = useMemo(
-    () => new Set((logs || []).map((l) => l?.date || l?.day || "")),
-    [logs]
+  const doneThisWeek = new Set(
+    allLogs
+      .map((l) => l?.date || l?.day || "")
+      .filter((iso) => {
+        const d = isoToDate(iso);
+        return d >= startOfWeek && d <= endOfWeek;
+      })
   );
 
+  const groups = [
+    "Petto",
+    "Schiena",
+    "Gambe",
+    "Spalle",
+    "Bicipiti",
+    "Tricipiti",
+    "Core",
+    "Altro",
+  ];
+
+  return groups.map((g) => ({
+    g,
+    setsDone: doneThisWeek.size, // mock: 1 allenamento = 1 "serie fatta"
+    setsTarget: 4, // mock: target fisso a 4 per ora
+  }));
+}
+
+/* =========================
+   CALENDARIO
+   ========================= */
+
+function CalendarBlock({ mode = "month", today, logs, onPickDay, isDoneDate }) {
+  const week = useMemo(() => getCurrentWeekDays(today), [today]);
+  const month = useMemo(() => getMonthMatrix(today), [today]);
+
   if (mode === "week") {
-    const week = getCurrentWeekDays(today);
     return (
       <div className="calendar">
         <div className="cal-head">Settimana corrente</div>
         <div className="cal-weekdays">
-          {["Lun","Mar","Mer","Gio","Ven","Sab","Dom"].map((w)=>(
+          {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((w) => (
             <div key={w}>{w}</div>
           ))}
         </div>
@@ -172,8 +288,10 @@ function CalendarBlock({ mode = "month", today, logs }) {
             <CalendarCell
               key={d.key}
               date={d}
-              isDone={doneDates.has(d.iso)}
               isToday={d.isToday}
+              muted={false}
+              isDone={isDoneDate(d.iso)}
+              onClick={() => onPickDay(d)}
             />
           ))}
         </div>
@@ -181,24 +299,26 @@ function CalendarBlock({ mode = "month", today, logs }) {
     );
   }
 
-  // Mese
-  const m = getMonthMatrix(today);
+  // mese
   return (
     <div className="calendar">
-      <div className="cal-head">{monthLabel(m.year, m.month)} {m.year}</div>
+      <div className="cal-head">
+        {monthLabel(month.year, month.month)} {month.year}
+      </div>
       <div className="cal-weekdays">
-        {["Lun","Mar","Mer","Gio","Ven","Sab","Dom"].map((w)=>(
+        {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((w) => (
           <div key={w}>{w}</div>
         ))}
       </div>
       <div className="grid-cols-7">
-        {m.cells.map((cell, i) => (
+        {month.cells.map((cell, i) => (
           <CalendarCell
             key={i}
             date={cell}
-            muted={!cell.inMonth}
-            isDone={doneDates.has(cell.iso)}
             isToday={cell.isToday}
+            muted={!cell.inMonth}
+            isDone={isDoneDate(cell.iso)}
+            onClick={() => onPickDay(cell)}
           />
         ))}
       </div>
@@ -206,34 +326,113 @@ function CalendarBlock({ mode = "month", today, logs }) {
   );
 }
 
-function CalendarCell({ date, muted=false, isDone=false, isToday=false }) {
+function CalendarCell({ date, muted, isDone, isToday, onClick }) {
   return (
-    <div className={`cal-cell ${muted ? "mute" : ""} ${isToday ? "today" : ""}`}>
+    <div
+      className={`cal-cell ${muted ? "mute" : ""} ${isToday ? "today" : ""}`}
+      onClick={onClick}
+      style={{ cursor: "pointer" }}
+      title={`${date.d}/${date.m} ${date.y}`}
+    >
       <div className="cal-date">{date.d}</div>
       <div className="cal-dot" style={{ opacity: isDone ? 1 : 0.15 }} />
     </div>
   );
 }
 
-/* ---------- helpers calendario ---------- */
+/* =========================
+   PANNELLO GIORNO
+   ========================= */
+function DayPanel({ iso, label, defaultNote, isDone, onClose, onDone, onClear }) {
+  const [note, setNote] = useState(defaultNote || "");
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15,23,42,.35)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+        zIndex: 50,
+      }}
+      onClick={onClose}
+    >
+      <div
+        className="card"
+        style={{ width: 420, maxWidth: "100%", background: "#fff" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="font-semibold" style={{ fontSize: 18 }}>
+          {label}
+        </div>
+
+        <div className="text-slate-600" style={{ fontSize: 13, marginTop: 6 }}>
+          {iso}
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <div className="text-slate-600" style={{ fontSize: 13, marginBottom: 6 }}>
+            Note (opzionale)
+          </div>
+          <textarea
+            className="input"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Es: stanco, ho ridotto il volume…"
+            style={{
+              width: "100%",
+              minHeight: 80,
+              resize: "vertical",
+              borderRadius: 12,
+            }}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+          {isDone ? (
+            <button className="btn" onClick={() => onClear()}>
+              Cancella completato
+            </button>
+          ) : (
+            <button className="btn btn-primary" onClick={() => onDone(note)}>
+              Segna completato
+            </button>
+          )}
+          <button className="btn" onClick={onClose}>
+            Chiudi
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================
+   HELPERS
+   ========================= */
 function pad2(n){return n<10?("0"+n):(""+n)}
 function toISO(y,m,d){return `${y}-${pad2(m)}-${pad2(d)}`}
+function isoToDate(iso){const [y,m,d]=iso.split("-").map(Number); return new Date(y,(m-1),d)}
 function monthLabel(year,month){
   const labels=["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
   return labels[month-1]||"";
 }
 function sameDate(a,b){return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate()}
+function getWeekStart(d0){
+  const d=new Date(d0); const wd=(d.getDay()+6)%7; d.setHours(0,0,0,0); d.setDate(d.getDate()-wd); return d;
+}
+function dayLabel(d){return `${pad2(d.d)}/${pad2(d.m)} ${d.y}`}
 
 function getCurrentWeekDays(base){
   const today=new Date(base);
-  const start=new Date(today);
-  const weekday=(today.getDay()+6)%7; // 0 lun ... 6 dom
-  start.setDate(today.getDate()-weekday);
+  const start=getWeekStart(today);
   const out=[];
   for(let i=0;i<7;i++){
-    const d=new Date(start); d.setDate(start.getDate()+i);
-    const y=d.getFullYear(), m=d.getMonth()+1, dd=d.getDate();
-    out.push({y,m,d:dd, iso:toISO(y,m,dd), key:`${y}-${m}-${dd}`, isToday:sameDate(d,new Date())});
+    const dd=new Date(start); dd.setDate(start.getDate()+i);
+    const y=dd.getFullYear(), m=dd.getMonth()+1, d=dd.getDate();
+    out.push({y,m,d, iso:toISO(y,m,d), key:`${y}-${m}-${d}`, isToday:sameDate(dd,new Date())});
   }
   return out;
 }
