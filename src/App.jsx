@@ -1,102 +1,184 @@
-// App.jsx — routing a schede / allenamenti / PT
-import { useEffect, useState } from "react";
+// src/App.jsx
+import React, { useEffect, useMemo, useState } from "react";
+import "./App.css";
 import "./index.css";
 
-// Pagine
 import UserDashboard from "./pages/UserDashboard.jsx";
 import TemplateBuilder from "./pages/TemplateBuilder.jsx";
 import PTDashboard from "./pages/PTDashboard.jsx";
 
-// Dati locali (mock) — manteniamo per ora localStorage
 import {
-  listUsers,
-  getActivePlan,
-} from "./dataApi.local";
+  DEMO_USERS,
+  DEMO_PATIENTS,
+} from "./utils.js";
 
-export default function App() {
-  // utenti caricati dal mock
-  const [users, setUsers] = useState([]);
-  const [currentUserId, setCurrentUserId] = useState("");
-  const [page, setPage] = useState("allenamenti"); // 'allenamenti' | 'schede' | 'pt'
+/* ----------------------------------------------------
+   Navbar: mostra Allenamenti / Schede e (solo per coach) PT
+---------------------------------------------------- */
+function Navbar({ user, page, setPage, UserSwitcher }) {
+  const isCoach =
+    user?.role?.toUpperCase?.() === "PT" ||
+    user?.role?.toUpperCase?.() === "COACH" ||
+    (typeof user?.id === "string" && user.id.startsWith("pt-"));
 
-  // carica utenti
-  useEffect(() => {
-    const us = listUsers();
-    setUsers(us);
-    // di default selezioniamo il primo USER (non PT)
-    const firstUser = us.find(u => u.role === "USER") || us[0];
-    if (firstUser) setCurrentUserId(firstUser.id);
-  }, []);
-
-  const currentUser = users.find(u => u.id === currentUserId) || null;
-  const isPT = currentUser?.role === "PT";
-
-  /* ---------------- Layout & Nav ---------------- */
   return (
-    <div className="app-shell">
-      {/* Header */}
-      <header className="app-header">
-        <div className="brand">
-          <span className="dot" /> <span className="brand-name">CoachFit</span>
-          <span className="badge">MVP</span>
-        </div>
+    <header className="app-header">
+      <div className="brand">
+        <span className="dot"></span>
+        <span className="brand-name">CoachFit</span>
+        <span className="badge">MVP</span>
+      </div>
 
-        <div className="header-actions">
-          {/* Selettore utente corrente */}
-          <select
-            className="input"
-            value={currentUserId}
-            onChange={(e) => setCurrentUserId(e.target.value)}
+      <div className="header-actions">
+        {UserSwitcher ? <UserSwitcher /> : null}
+        <nav className="tabs">
+          <button
+            className={`pill ${page === "allenamenti" ? "active" : ""}`}
+            onClick={() => setPage("allenamenti")}
           >
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name} ({u.role})
-              </option>
-            ))}
-          </select>
-
-          {/* Tabs */}
-          <nav className="tabs">
-            <button
-              className={`pill ${page === "allenamenti" ? "active" : ""}`}
-              onClick={() => setPage("allenamenti")}
-            >
-              Allenamenti
-            </button>
-            <button
-              className={`pill ${page === "schede" ? "active" : ""}`}
-              onClick={() => setPage("schede")}
-            >
-              Schede
-            </button>
+            Allenamenti
+          </button>
+          <button
+            className={`pill ${page === "schede" ? "active" : ""}`}
+            onClick={() => setPage("schede")}
+          >
+            Schede
+          </button>
+          {isCoach && (
             <button
               className={`pill ${page === "pt" ? "active" : ""}`}
               onClick={() => setPage("pt")}
-              title="Dashboard Coach / PT"
             >
               PT
             </button>
-          </nav>
-        </div>
-      </header>
+          )}
+        </nav>
+      </div>
+    </header>
+  );
+}
 
-      {/* Corpo pagina */}
+/* ----------------------------------------------------
+   Costanti e persistenza
+---------------------------------------------------- */
+const STORAGE_KEY = "coachfit-v1";
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function saveState(data) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch {}
+}
+
+/* ----------------------------------------------------
+   App
+---------------------------------------------------- */
+export default function App() {
+  // utenti demo + selezione corrente
+  const [users] = useState(DEMO_USERS);
+  const [currentUserId, setCurrentUserId] = useState(DEMO_USERS[0]?.id || "user-1");
+  const currentUser = useMemo(
+    () => users.find((u) => u.id === currentUserId),
+    [users, currentUserId]
+  );
+
+  // stato globale (schede, assegnazioni, attivi, log)
+  const [templates, setTemplates] = useState([]);     // array di schede create dall'utente/coach
+  const [assignments, setAssignments] = useState([]); // [{planId, userId}] se lo stai usando
+  const [activePlans, setActivePlans] = useState({}); // { userId: {id, name, days: [...] } }
+  const [workoutLogs, setWorkoutLogs] = useState([]); // [{id, user_id, date, entries:[...] }]
+
+  // pagina corrente
+  const [page, setPage] = useState("allenamenti");
+
+  // carica da localStorage
+  useEffect(() => {
+    const loaded = loadState();
+    if (loaded) {
+      setTemplates(loaded.templates || []);
+      setAssignments(loaded.assignments || []);
+      setActivePlans(loaded.activePlans || {});
+      setWorkoutLogs(loaded.workoutLogs || []);
+    }
+  }, []);
+
+  // salva su localStorage ad ogni modifica
+  useEffect(() => {
+    saveState({ templates, assignments, activePlans, workoutLogs });
+  }, [templates, assignments, activePlans, workoutLogs]);
+
+  // helper: attiva una scheda per un utente
+  const setActivePlanForUser = (userId, plan) => {
+    setActivePlans((prev) => ({ ...prev, [userId]: plan || null }));
+  };
+
+  // opzionale: uno switcher utente da mettere in Navbar
+  const UserSwitcher = () => (
+    <select
+      className="input"
+      value={currentUserId}
+      onChange={(e) => setCurrentUserId(e.target.value)}
+    >
+      {users.map((u) => (
+        <option key={u.id} value={u.id}>
+          {u.name} ({u.role})
+        </option>
+      ))}
+    </select>
+  );
+
+  return (
+    <div className="app-shell">
+      {/* HEADER */}
+      <Navbar
+        user={currentUser}
+        page={page}
+        setPage={setPage}
+        UserSwitcher={UserSwitcher}
+      />
+
+      {/* CONTENUTO */}
       <main className="app-main">
-        {page === "allenamenti" && currentUser && (
+        {page === "allenamenti" && (
           <UserDashboard
-            owner={currentUser}                  // utente che sta usando l'app
-            activePlanId={getActivePlan(currentUser.id)}  // scheda attiva (se c'è)
+            user={currentUser}
+            activePlan={activePlans[currentUserId] || null}
+            setActivePlanForUser={(plan) => setActivePlanForUser(currentUserId, plan)}
+            templates={templates}
+            setTemplates={setTemplates}
+            workoutLogs={workoutLogs}
+            setWorkoutLogs={setWorkoutLogs}
           />
         )}
 
         {page === "schede" && (
           <TemplateBuilder
-            owner={currentUser || { id: "unknown", role: "USER", name: "Utente" }}
+            user={currentUser}
+            templates={templates}
+            setTemplates={setTemplates}
           />
         )}
 
         {page === "pt" && (
-          <PTDashboard />
+          <PTDashboard
+            coach={currentUser}
+            patients={DEMO_PATIENTS}
+            templates={templates}
+            assignments={assignments}
+            setAssignments={setAssignments}
+            workoutLogs={workoutLogs}
+            setActivePlanForUser={setActivePlanForUser}
+            activePlans={activePlans}
+          />
         )}
       </main>
     </div>
