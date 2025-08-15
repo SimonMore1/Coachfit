@@ -254,3 +254,97 @@ body{
 
 /* assicura che i campi dentro .ex-row non forzino larghezze */
 .ex-row > *{ min-width: 0; }
+/* ====== MOBILE FIX (iPhone) ====== */
+
+/* Evita zoom automatico di Safari quando tocchi gli input */
+@media (max-width: 768px){
+  input, select, textarea, button {
+    font-size: 16px;
+  }
+}
+
+/* Contenitore app: più stretto e con padding maggiore su mobile */
+@media (max-width: 768px){
+  .app-main{
+    max-width: 100%;
+    padding: 10px 12px 24px;
+  }
+}
+
+/* Builder: la griglia “lista schede | editor” passa a una colonna */
+@media (max-width: 900px){
+  .tpl-grid{
+    grid-template-columns: 1fr;   /* da 2 colonne -> 1 colonna */
+    gap: 12px;
+  }
+}
+
+/* Card “Le mie schede”: separazione visiva su mobile */
+@media (max-width: 900px){
+  .tpl-list{
+    max-height: unset;
+  }
+}
+
+/* Riga esercizio: impaginazione a blocchi quando lo schermo è stretto */
+@media (max-width: 1200px){
+  .ex-row{
+    grid-template-columns: 1fr .7fr .7fr .6fr .6fr;
+    grid-auto-rows: auto;
+  }
+  .ex-row > :nth-child(1){ grid-column: 1 / span 2; } /* Nome esercizio */
+  .ex-row > :nth-child(2){ grid-column: 3 / span 1; } /* Gruppo muscolare */
+  .ex-row > :nth-child(3){ grid-column: 4 / span 1; } /* Attrezzo */
+  .ex-row > :nth-child(4){ grid-column: 5 / span 1; } /* Serie */
+  .ex-row > :nth-child(5){ grid-column: 1 / span 1; } /* Reps */
+  .ex-row > :nth-child(6){ grid-column: 2 / span 1; } /* Kg */
+  .ex-row > :nth-child(7){ grid-column: 3 / span 2; } /* Note */
+  .ex-row > :nth-child(8){ grid-column: 5 / span 1; justify-self:end; } /* cestino */
+}
+
+/* Sotto i 720px: ogni campo a piena larghezza, layout a blocchi */
+@media (max-width: 720px){
+  .ex-row{
+    grid-template-columns: 1fr;
+  }
+  .ex-row > *{ width: 100%; }
+  .ex-row > :last-child{ justify-self: end; }
+}
+
+/* Filtri/libreria: righe che vanno a capo bene su mobile */
+@media (max-width: 768px){
+  .lib-filters{
+    gap: 6px;
+  }
+  .lib-list{
+    gap: 6px;
+  }
+}
+
+/* Select e input non devono “sforare” il viewport */
+@media (max-width: 768px){
+  .input, select.input{
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+/* Header hero un filo più compatto su mobile */
+@media (max-width: 768px){
+  .hero{ padding: 16px; border-radius: 16px; }
+}
+
+/* Calendario: margini e testi più stretti */
+@media (max-width: 768px){
+  .calendar{ padding: 10px; }
+  .cal-weekdays{ gap: 4px; font-size: 11px; }
+  .grid-cols-7{ gap: 4px; }
+  .cal-cell{ min-height: 70px; padding: 8px; }
+  .cal-date{ font-size: 11px; }
+}
+
+/* Header tabs: permetti andare a capo su iPhone piccoli */
+@media (max-width: 420px){
+  .tabs{ flex-wrap: wrap; row-gap: 6px; }
+  .brand-name{ font-size:14px; }
+}
