@@ -1,269 +1,315 @@
-import { useState } from "react";
+// src/pages/TemplateBuilder.jsx
+import { useEffect, useMemo, useState } from "react";
 import {
-  EXERCISE_CATALOG, EXERCISE_NAMES,
-  EQUIPMENTS, MODALITIES,
-  capWords, detectGroup, clone
+  capWords,
+  clone,
+  EXERCISE_CATALOG,
+  EXERCISE_NAMES,
+  EQUIPMENTS,
+  MODALITIES,
+  MUSCLE_GROUPS,
 } from "../utils";
 
-export default function TemplateBuilder({
-  currentUser,
-  templates,
-  setTemplates,
-  setActivePlanForUser
-}) {
-  const [tplId, setTplId] = useState(null);
-  const [tplName, setTplName] = useState("");
-  const [draftDays, setDraftDays] = useState([]);
-  const [selectedDay, setSelectedDay] = useState(1);
+// ——— fallback a localStorage se il parent non passa templates/setTemplates
+const LS_KEY = "coachfit-templates";
 
-  // input esercizio
-  const [exName, setExName] = useState("");
-  const [exSets, setExSets] = useState(3);
-  const [exReps, setExReps] = useState(10);
-  const [exWeight, setExWeight] = useState(20);
-
-  // filtri catalogo
-  const [search, setSearch] = useState("");
-  const [equip, setEquip] = useState("");
-  const [mod, setMod] = useState("");
-
-  // espansione lista schede
-  const [expanded, setExpanded] = useState({}); // {id: true/false}
-
-  const addDay = () => {
-    const idx = draftDays.length + 1;
-    setDraftDays([...draftDays, { index: idx, title: `Giorno ${idx}`, exercises: [] }]);
-    setSelectedDay(idx);
-  };
-  const removeDay = (idx) => {
-    const next = draftDays
-      .filter(d=>d.index!==idx)
-      .map((d,i)=>({...d,index:i+1,title:`Giorno ${i+1}`}));
-    setDraftDays(next);
-    setSelectedDay(next.length?1:0);
-  };
-
-  const addExercise = () => {
-    const name = capWords(exName.trim());
-    if (!name) return;
-    if (!draftDays.length) addDay();
-
-    const days = clone(draftDays);
-    const d = days.find(x=>x.index===selectedDay);
-    if (!d) return;
-
-    d.exercises.push({
-      name,
-      targetSets: Math.max(1, Number(exSets) || 1),
-      targetReps: Math.max(1, Number(exReps) || 1),
-      targetWeight: Math.max(0, Number(exWeight) || 0),
-      muscleGroup: detectGroup(name),
-    });
-    setDraftDays(days);
-    setExName("");
-  };
-
-  const removeExercise = (dayIndex, i) => {
-    const days = clone(draftDays);
-    const d = days.find(x=>x.index===dayIndex);
-    if (!d) return;
-    d.exercises.splice(i,1);
-    setDraftDays(days);
-  };
-
-  const saveTemplate = () => {
-    if (!tplName.trim() || draftDays.length===0) return;
-    if (tplId) {
-      setTemplates(templates.map(t =>
-        t.id===tplId ? {...t, name: capWords(tplName), days:draftDays} : t
-      ));
-    } else {
-      const id = "plan_"+Date.now();
-      setTemplates([{ id, ownerId: currentUser.id, name: capWords(tplName), days: draftDays }, ...templates]);
+function useTemplatesBridge(templatesProp, setTemplatesProp) {
+  const [local, setLocal] = useState(() => {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
     }
-    clearDraft();
-  };
-
-  const editTemplate = (t) => {
-    setTplId(t.id);
-    setTplName(t.name);
-    setDraftDays(clone(t.days));
-    setSelectedDay(t.days?.[0]?.index || 1);
-  };
-
-  const deleteTemplate = (id) => setTemplates(templates.filter(t=>t.id!==id));
-
-  const clearDraft = () => {
-    setTplId(null); setTplName(""); setDraftDays([]); setSelectedDay(1);
-    setExName(""); setExSets(3); setExReps(10); setExWeight(20);
-  };
-
-  // Filtro catalogo
-  const filteredCatalog = EXERCISE_CATALOG.filter(e=>{
-    if (equip && e.equipment!==equip) return false;
-    if (mod && e.modality!==mod) return false;
-    if (search && !e.name.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
   });
 
-  return (
-    <div className="grid grid-2">
-      {/* EDITOR */}
-      <div className="card">
-        <h2>{tplId ? "Modifica scheda" : "Crea nuova scheda"}</h2>
+  const templates = templatesProp ?? local;
+  const setTemplates = setTemplatesProp ?? ((updater) => {
+    const next = typeof updater === "function" ? updater(clone(local)) : updater;
+    setLocal(next);
+    try { localStorage.setItem(LS_KEY, JSON.stringify(next)); } catch {}
+  });
 
-        <div className="row" style={{marginTop:8}}>
-          <input className="input" style={{minWidth:240}} placeholder="Nome scheda"
-            value={tplName} onChange={e=>setTplName(e.target.value)} />
-          <button className="btn btn-primary" onClick={addDay}>+ Giorno</button>
-          {draftDays.length>0 && (
+  return [templates, setTemplates];
+}
+
+export default function TemplateBuilder({ currentUser, templates: templatesProp, setTemplates: setTemplatesProp }) {
+  const [templates, setTemplates] = useTemplatesBridge(templatesProp, setTemplatesProp);
+
+  // stato editor
+  const [activeId, setActiveId] = useState(null);
+  const [activeDayIndex, setActiveDayIndex] = useState(0);
+
+  // filtri libreria
+  const [search, setSearch] = useState("");
+  const [filterGroup, setFilterGroup] = useState("Tutti i gruppi");
+  const [filterEquip, setFilterEquip] = useState("Tutti gli attrezzi");
+  const [filterMod, setFilterMod] = useState("Tutte le modalità");
+
+  // campi inserimento riga (dropdown + valori)
+  const [selExercise, setSelExercise] = useState("");
+  const [sets, setSets] = useState(3);
+  const [reps, setReps] = useState(10);
+  const [weight, setWeight] = useState(20);
+
+  // attivo
+  const active = useMemo(
+    () => templates.find(t => t.id === activeId) ?? null,
+    [templates, activeId]
+  );
+
+  // crea bozza se non esiste
+  useEffect(() => {
+    if (!activeId) {
+      const t = makeNewTemplate();
+      setTemplates(prev => [t, ...prev]);
+      setActiveId(t.id);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // lista giorni dell’attivo
+  const days = active?.days ?? [];
+
+  // libreria filtrata per menu a tendina
+  const filteredNames = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return EXERCISE_CATALOG
+      .filter(e => (filterGroup === "Tutti i gruppi" || e.muscle === filterGroup))
+      .filter(e => (filterEquip === "Tutti gli attrezzi" || e.equipment === filterEquip))
+      .filter(e => (filterMod   === "Tutte le modalità" || e.modality === filterMod))
+      .filter(e => (q === "" || e.name.toLowerCase().includes(q)))
+      .map(e => e.name);
+  }, [search, filterGroup, filterEquip, filterMod]);
+
+  function makeNewTemplate() {
+    const id = `tpl_${Date.now()}`;
+    return {
+      id,
+      ownerId: currentUser?.id ?? "user-1",
+      name: "Nuova scheda",
+      days: [
+        { num: 1, exercises: [] },
+        { num: 2, exercises: [] },
+      ]
+    };
+  }
+
+  function renameTemplate(val) {
+    if (!active) return;
+    setTemplates(list => list.map(t => t.id === active.id ? { ...t, name: val } : t));
+  }
+
+  function addDay() {
+    if (!active) return;
+    const next = clone(active);
+    const max = Math.max(0, ...next.days.map(d => d.num));
+    next.days.push({ num: max + 1, exercises: [] });
+    setTemplates(list => list.map(t => t.id === active.id ? next : t));
+    setActiveDayIndex(next.days.length - 1);
+  }
+
+  function removeDay(index) {
+    if (!active) return;
+    const next = clone(active);
+    next.days.splice(index, 1);
+    if (next.days.length === 0) next.days.push({ num: 1, exercises: [] });
+    setTemplates(list => list.map(t => t.id === active.id ? next : t));
+    setActiveDayIndex(0);
+  }
+
+  function dupTemplate(id) {
+    const t = templates.find(x => x.id === id);
+    if (!t) return;
+    const copy = clone(t);
+    copy.id = `tpl_${Date.now()}`;
+    copy.name = `${t.name} (copia)`;
+    setTemplates(prev => [copy, ...prev]);
+    setActiveId(copy.id);
+  }
+
+  function deleteTemplate(id) {
+    setTemplates(prev => prev.filter(t => t.id !== id));
+    if (activeId === id) setActiveId(null);
+  }
+
+  function addExerciseRow() {
+    if (!active) return;
+    const day = days[activeDayIndex];
+    if (!day) return;
+    if (!selExercise) return;
+
+    // prendi metadata dal catalogo per muscle/equipment coerenti
+    const meta = EXERCISE_CATALOG.find(e => e.name === selExercise);
+    const row = {
+      name: capWords(selExercise),
+      group: meta?.muscle ?? "",
+      equipment: meta?.equipment ?? "",
+      sets: Number(sets) || 0,
+      reps: Number(reps) || 0,
+      weight: Number(weight) || 0,
+      note: ""
+    };
+    const next = clone(active);
+    next.days[activeDayIndex].exercises.push(row);
+    setTemplates(list => list.map(t => t.id === active.id ? next : t));
+  }
+
+  function updateRow(idx, patch) {
+    if (!active) return;
+    const next = clone(active);
+    const row = next.days[activeDayIndex].exercises[idx];
+    next.days[activeDayIndex].exercises[idx] = { ...row, ...patch };
+    setTemplates(list => list.map(t => t.id === active.id ? next : t));
+  }
+
+  function removeRow(idx) {
+    if (!active) return;
+    const next = clone(active);
+    next.days[activeDayIndex].exercises.splice(idx, 1);
+    setTemplates(list => list.map(t => t.id === active.id ? next : t));
+  }
+
+  // UI
+  return (
+    <div className="app-main" style={{maxWidth:1100, margin:"0 auto", padding:16}}>
+      <h2 className="font-semibold" style={{fontSize:22, margin:"8px 0 16px"}}>
+        Builder schede — Utente: {currentUser?.name ?? "Simone"}
+      </h2>
+
+      <div className="tpl-grid" style={{display:"grid", gridTemplateColumns:"320px 1fr", gap:12}}>
+        {/* Lista schede a sinistra */}
+        <div className="card">
+          <div className="font-medium" style={{marginBottom:8}}>Le mie schede</div>
+          <button className="btn btn-primary" onClick={()=>{
+            const t = makeNewTemplate();
+            setTemplates(prev => [t, ...prev]);
+            setActiveId(t.id);
+            setActiveDayIndex(0);
+          }}>
+            + Nuova scheda
+          </button>
+
+          <div className="tpl-list" style={{marginTop:10, display:"flex", flexDirection:"column", gap:8}}>
+            {templates.map(t => {
+              const isActive = t.id === activeId;
+              return (
+                <div key={t.id}
+                     className={`tpl-item ${isActive ? "active":""}`}
+                     onClick={()=>{ setActiveId(t.id); setActiveDayIndex(0); }}
+                     style={{
+                       border:"1px solid #e2e8f0", borderRadius:12, padding:10, cursor:"pointer",
+                       outline: isActive ? "2px solid #c7d2fe" : "none", background: isActive ? "#eef2ff" : "#fff"
+                     }}>
+                  <div className="tpl-title">{t.name}</div>
+                  <div className="muted" style={{fontSize:12, color:"#64748b"}}>
+                    {t.days.length} giorni — {t.days.reduce((s,d)=>s+(d.exercises?.length||0),0)} esercizi
+                  </div>
+                  <div className="tpl-actions" style={{display:"flex", gap:6, marginTop:6}}>
+                    <button className="btn-ghost" onClick={(e)=>{e.stopPropagation(); dupTemplate(t.id);}}>Duplica</button>
+                    <button className="btn-ghost" onClick={(e)=>{e.stopPropagation(); deleteTemplate(t.id);}}>Elimina</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Editor a destra */}
+        <div className="card">
+          {!active ? (
+            <div>Nessuna scheda selezionata.</div>
+          ) : (
             <>
-              <span className="muted" style={{fontSize:13}}>Giorno attivo</span>
-              <select className="input" value={selectedDay} onChange={e=>setSelectedDay(Number(e.target.value))}>
-                {draftDays.map(d=><option key={d.index} value={d.index}>{d.title}</option>)}
-              </select>
-              <button className="btn btn-danger" onClick={()=>removeDay(selectedDay)}>Elimina giorno</button>
+              <div style={{display:"grid", gridTemplateColumns:"1fr 180px", gap:12, alignItems:"center"}}>
+                <div>
+                  <div className="label">Nome scheda</div>
+                  <input className="input" value={active.name} onChange={e=>renameTemplate(e.target.value)} />
+                </div>
+                <div>
+                  <div className="label">Giorno</div>
+                  <div style={{display:"flex", gap:8}}>
+                    <select className="input"
+                            value={activeDayIndex}
+                            onChange={e=>setActiveDayIndex(Number(e.target.value))}>
+                      {days.map((d,i)=><option key={i} value={i}>Giorno {d.num}</option>)}
+                    </select>
+                    <button className="btn" onClick={addDay}>+ Giorno</button>
+                    <button className="btn" onClick={()=>removeDay(activeDayIndex)}>-</button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Riga editor esercizio (MENU A TENDINA) */}
+              <div style={{marginTop:14}}>
+                <div className="label">Esercizi — giorno {days[activeDayIndex]?.num}</div>
+
+                {/* filtri e ricerca per popolare il select */}
+                <div className="lib-box">
+                  <div className="lib-filters" style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+                    <input className="input" placeholder="Cerca esercizio…" value={search} onChange={e=>setSearch(e.target.value)} />
+                    <select className="input" value={filterGroup} onChange={e=>setFilterGroup(e.target.value)}>
+                      <option>Tutti i gruppi</option>
+                      {MUSCLE_GROUPS.map(g => <option key={g}>{g}</option>)}
+                    </select>
+                    <select className="input" value={filterEquip} onChange={e=>setFilterEquip(e.target.value)}>
+                      <option>Tutti gli attrezzi</option>
+                      {EQUIPMENTS.map(e => <option key={e}>{e}</option>)}
+                    </select>
+                    <select className="input" value={filterMod} onChange={e=>setFilterMod(e.target.value)}>
+                      <option>Tutte le modalità</option>
+                      {MODALITIES.map(m => <option key={m}>{m}</option>)}
+                    </select>
+                  </div>
+
+                  {/* select esercizio + parametri */}
+                  <div style={{display:"grid", gridTemplateColumns:"1.4fr 0.8fr 0.8fr 0.6fr 0.6fr 0.6fr auto", gap:8, marginTop:10}}>
+                    <select className="input" value={selExercise} onChange={e=>setSelExercise(e.target.value)}>
+                      <option value="">— Seleziona esercizio —</option>
+                      {filteredNames.map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+
+                    {/* mostriamo il gruppo/equip dell’esercizio scelto (non editabili qui) */}
+                    <div className="input" style={{opacity:.8}}>
+                      {EXERCISE_CATALOG.find(e=>e.name===selExercise)?.muscle ?? "—"}
+                    </div>
+                    <div className="input" style={{opacity:.8}}>
+                      {EXERCISE_CATALOG.find(e=>e.name===selExercise)?.equipment ?? "—"}
+                    </div>
+
+                    <input className="input" type="number" min="0" value={sets} onChange={e=>setSets(e.target.value)} placeholder="Serie" />
+                    <input className="input" type="number" min="0" value={reps} onChange={e=>setReps(e.target.value)} placeholder="Reps" />
+                    <input className="input" type="number" min="0" value={weight} onChange={e=>setWeight(e.target.value)} placeholder="Kg" />
+                    <button className="btn btn-primary" onClick={addExerciseRow}>Aggiungi</button>
+                  </div>
+                </div>
+              </div>
+
+              {/* tabella esercizi del giorno */}
+              <ul className="ex-list" style={{listStyle:"none", margin:"12px 0 0", padding:0, display:"flex", flexDirection:"column", gap:8}}>
+                {days[activeDayIndex]?.exercises?.map((ex, idx)=>(
+                  <li key={idx} className="ex-row" style={{
+                    display:"grid", gridTemplateColumns:"1.4fr 0.8fr 0.8fr 0.6fr 0.6fr 0.6fr 1fr auto",
+                    gap:8, border:"1px solid #e2e8f0", borderRadius:10, padding:8, background:"#fff"
+                  }}>
+                    <input className="input" value={ex.name}
+                      onChange={e=>updateRow(idx,{ name: capWords(e.target.value) })} />
+                    <div className="input" style={{opacity:.7}}>{ex.group || "—"}</div>
+                    <div className="input" style={{opacity:.7}}>{ex.equipment || "—"}</div>
+                    <input className="input" type="number" min="0" value={ex.sets} onChange={e=>updateRow(idx,{sets:Number(e.target.value)||0})}/>
+                    <input className="input" type="number" min="0" value={ex.reps} onChange={e=>updateRow(idx,{reps:Number(e.target.value)||0})}/>
+                    <input className="input" type="number" min="0" value={ex.weight} onChange={e=>updateRow(idx,{weight:Number(e.target.value)||0})}/>
+                    <input className="input" placeholder="Note (opzionale)" value={ex.note||""} onChange={e=>updateRow(idx,{note:e.target.value})}/>
+                    <button className="btn" onClick={()=>removeRow(idx)}>🗑</button>
+                  </li>
+                ))}
+                {(!days[activeDayIndex] || days[activeDayIndex].exercises.length===0) && (
+                  <div className="muted" style={{marginTop:8}}>Nessun esercizio in questo giorno.</div>
+                )}
+              </ul>
             </>
           )}
         </div>
-
-        {/* Filtri catalogo */}
-        <div className="row" style={{marginTop:10}}>
-          <input className="input" placeholder="Cerca esercizio"
-                 value={search} onChange={e=>setSearch(e.target.value)} />
-          <select className="input" value={equip} onChange={e=>setEquip(e.target.value)}>
-            <option value="">Attrezzo (tutti)</option>
-            {EQUIPMENTS.map(x=><option key={x} value={x}>{x}</option>)}
-          </select>
-          <select className="input" value={mod} onChange={e=>setMod(e.target.value)}>
-            <option value="">Modalità (tutte)</option>
-            {MODALITIES.map(x=><option key={x} value={x}>{x}</option>)}
-          </select>
-        </div>
-
-        {/* Aggiunta esercizio */}
-        {draftDays.length>0 && (
-          <>
-            <div className="row" style={{marginTop:10}}>
-              <input list="catalog" className="input" style={{minWidth:220}}
-                     placeholder="Esercizio"
-                     value={exName} onChange={e=>setExName(e.target.value)} />
-              <datalist id="catalog">
-                {filteredCatalog.map((e,i)=><option key={i} value={e.name} />)}
-              </datalist>
-
-              <span className="muted" style={{fontSize:13}}>Serie</span>
-              <input type="number" className="input" style={{width:70}}
-                     value={exSets} onChange={e=>setExSets(e.target.value)} />
-
-              <span className="muted" style={{fontSize:13}}>Reps</span>
-              <input type="number" className="input" style={{width:70}}
-                     value={exReps} onChange={e=>setExReps(e.target.value)} />
-
-              <span className="muted" style={{fontSize:13}}>Kg</span>
-              <input type="number" className="input" style={{width:90}}
-                     value={exWeight} onChange={e=>setExWeight(e.target.value)} />
-
-              <button className="btn" onClick={addExercise}>Aggiungi</button>
-            </div>
-
-            {/* giorni + esercizi */}
-            <div style={{marginTop:10}}>
-              {draftDays.map(d=>(
-                <div key={d.index} style={{border:"1px solid #e5e7eb",borderRadius:12,padding:12,marginTop:10}}>
-                  <div className="row" style={{justifyContent:"space-between"}}>
-                    <div style={{fontWeight:600}}>{d.title}</div>
-                    <button className="link" onClick={()=>setSelectedDay(d.index)}>Seleziona</button>
-                  </div>
-                  {d.exercises.length===0 ? (
-                    <div className="muted" style={{fontSize:14}}>Nessun esercizio.</div>
-                  ) : (
-                    <ul style={{margin:0,paddingLeft:0,listStyle:"none"}}>
-                      {d.exercises.map((e,i)=>(
-                        <li key={i} style={{border:"1px solid #e5e7eb",borderRadius:10,padding:10,marginTop:6}}>
-                          <div className="row" style={{alignItems:"baseline"}}>
-                            <div style={{minWidth:220,fontWeight:600}}>{e.name}</div>
-                            <div className="pill">{e.muscleGroup}</div>
-                          </div>
-                          <div className="muted" style={{fontSize:13, marginTop:6}}>
-                            <b>{e.targetSets}×{e.targetReps}</b>
-                          </div>
-                          <div style={{marginTop:4}}>
-                            Kg: <b>{e.targetWeight}</b>
-                          </div>
-                          <div className="row" style={{marginTop:6}}>
-                            <button className="btn btn-danger" onClick={()=>removeExercise(d.index,i)}>🗑 Rimuovi</button>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <div className="space" />
-            <div className="row">
-              <button className="btn" onClick={clearDraft}>Pulisci</button>
-              <button className="btn btn-primary" onClick={saveTemplate}>
-                {tplId ? "Salva modifiche" : "Salva scheda"}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* LISTA SCHEDE */}
-      <div className="card">
-        <h2>Le mie schede</h2>
-
-        {templates.filter(t=>t.ownerId===currentUser.id).length===0 ? (
-          <div className="muted" style={{marginTop:6}}>Nessuna scheda salvata.</div>
-        ) : (
-          <ul style={{marginTop:8,paddingLeft:0,listStyle:"none"}}>
-            {templates
-              .filter(t=>t.ownerId===currentUser.id)
-              .map(t=>(
-                <li key={t.id} style={{border:"1px solid #e5e7eb",borderRadius:12,padding:10,marginBottom:8}}>
-                  <div className="row" style={{justifyContent:"space-between"}}>
-                    <div>
-                      <div style={{fontWeight:600}}>{t.name}</div>
-                      <div className="muted" style={{fontSize:13}}>{t.days.length} giorni</div>
-                    </div>
-                    <div className="row">
-                      <button className="btn" onClick={()=>setExpanded({...expanded,[t.id]:!expanded[t.id]})}>
-                        {expanded[t.id] ? "Nascondi ⌃" : "Visualizza ⌄"}
-                      </button>
-                      <button className="btn" onClick={()=>setActivePlanForUser(currentUser.id, t.id)}>
-                        Rendi attiva (per me)
-                      </button>
-                      <button className="btn" onClick={()=>editTemplate(t)}>Modifica</button>
-                      <button className="btn btn-danger" onClick={()=>deleteTemplate(t.id)}>Elimina</button>
-                    </div>
-                  </div>
-
-                  {expanded[t.id] && (
-                    <div style={{marginTop:8}}>
-                      {t.days.map(d=>(
-                        <div key={d.index} style={{border:"1px solid #e5e7eb",borderRadius:10,padding:8,marginTop:6}}>
-                          <div style={{fontWeight:600,marginBottom:6}}>Giorno {d.index}</div>
-                          <ul style={{margin:0,paddingLeft:0,listStyle:"none"}}>
-                            {d.exercises.map((e,i)=>(
-                              <li key={i} style={{borderTop:i? "1px solid #f1f5f9":"none", paddingTop:i?8:0, marginTop:i?8:0}}>
-                                <div style={{fontWeight:500}}>{e.name}</div>
-                                <div className="muted" style={{fontSize:13}}><b>{e.targetSets}×{e.targetReps}</b></div>
-                                <div>Kg: <b>{e.targetWeight}</b></div>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </li>
-              ))}
-          </ul>
-        )}
       </div>
     </div>
   );

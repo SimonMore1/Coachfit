@@ -120,3 +120,137 @@ body{
 
 /* piccoli ritocchi ai box del riepilogo */
 .card .text-right .font-semibold{font-size:18px}
+/* HEATMAP attività (PT) */
+.hm-cell{
+  width:16px;height:16px;border-radius:4px;cursor:pointer;
+  transition:transform .05s ease, filter .1s ease;
+}
+.hm-cell:hover{filter:brightness(1.05); transform:scale(1.05)}
+.app-shell{min-height:100vh;background:#f8fafc;color:#0f172a}
+.app-header{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;padding:10px 16px}
+.brand{display:flex;align-items:center;gap:8px;font-weight:700}
+.brand-name{font-size:16px}
+.badge{background:#e2e8f0;color:#334155;font-size:11px;padding:2px 6px;border-radius:999px}
+.dot{width:10px;height:10px;background:#2563eb;border-radius:50%}
+.header-actions{display:flex;align-items:center;gap:8px}
+.tabs{display:flex;gap:6px}
+.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid #e2e8f0;background:#fff;padding:6px 10px;border-radius:999px;cursor:pointer}
+.pill.active{background:#eef2ff;border-color:#c7d2fe;color:#3730a3}
+.app-main{max-width:1100px;margin:0 auto;padding:16px}
+/* layout two-pane */
+.tpl-grid{display:grid;grid-template-columns:320px 1fr;gap:12px}
+@media(max-width:900px){.tpl-grid{grid-template-columns:1fr}}
+
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 1px 0 rgba(15,23,42,.04)}
+.muted{color:#64748b;font-size:12px}
+.label{color:#64748b;font-size:12px;margin-bottom:4px}
+
+/* lista schede */
+.tpl-list{display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 260px);overflow:auto;padding-right:4px}
+.tpl-item{border:1px solid #e2e8f0;border-radius:12px;padding:10px;cursor:pointer}
+.tpl-item.active{outline:2px solid #c7d2fe;border-color:#c7d2fe;background:#eef2ff}
+.tpl-title{font-weight:600}
+.tpl-actions{display:flex;gap:6px;margin-top:6px}
+.btn-ghost{border:1px solid #e2e8f0;background:#fff;padding:4px 8px;border-radius:8px;cursor:pointer}
+.tpl-preview{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.tpl-day{display:flex;gap:8px;align-items:center}
+.day-badge{font-size:12px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:2px 8px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid #e2e8f0;background:#fff;padding:4px 8px;border-radius:999px}
+.chip.muted{color:#64748b}
+
+/* editor esercizi */
+.ex-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.ex-row{display:grid;grid-template-columns:1.4fr .9fr .9fr .6fr .6fr .6fr 1fr auto;gap:8px;border:1px solid #e2e8f0;border-radius:10px;padding:8px;background:#fff}
+
+/* libreria */
+.lib-box{margin-top:14px;border-top:1px dashed #e2e8f0;padding-top:12px}
+.lib-filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.lib-list{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
+.chip.selectable{cursor:pointer}
+/* ---------- CONTAINER APP ---------- */
+.app-main{
+  max-width: 1040px;   /* prima era 1100 */
+  margin: 0 auto;
+  padding: 12px;
+  width: 100%;
+  overflow-x: hidden;  /* evita scroll orizzontale */
+}
+
+/* ---------- GRID 2 COL (lista + editor) ---------- */
+.tpl-grid{
+  display: grid;
+  grid-template-columns: 300px 1fr; /* prima 320px */
+  gap: 12px;
+}
+@media (max-width: 1200px){
+  .tpl-grid{
+    grid-template-columns: 280px 1fr;
+  }
+}
+@media (max-width: 980px){
+  .tpl-grid{
+    grid-template-columns: 1fr; /* una colonna su laptop piccoli */
+  }
+}
+
+/* ---------- RIGA ESERCIZIO (tabella) ---------- */
+/* desktop largo */
+.ex-row{
+  display: grid;
+  grid-template-columns: 1.3fr .8fr .8fr .5fr .5fr .5fr 1fr auto;
+  gap: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 8px;
+  background: #fff;
+}
+
+/* sotto i 1200px: due righe */
+@media (max-width: 1200px){
+  .ex-row{
+    grid-template-columns: 1fr .7fr .7fr .6fr .6fr; /* prima riga */
+    grid-auto-rows: auto;
+  }
+  .ex-row > :nth-child(1){ grid-column: 1 / span 2; } /* nome esercizio più largo */
+  .ex-row > :nth-child(2){ grid-column: 3 / span 1; } /* gruppo */
+  .ex-row > :nth-child(3){ grid-column: 4 / span 1; } /* attrezzo */
+  .ex-row > :nth-child(4){ grid-column: 5 / span 1; } /* serie */
+
+  /* seconda riga: reps, kg, note, cestino */
+  .ex-row > :nth-child(5){ grid-column: 1 / span 1; } /* reps */
+  .ex-row > :nth-child(6){ grid-column: 2 / span 1; } /* kg */
+  .ex-row > :nth-child(7){ grid-column: 3 / span 3; } /* note larga */
+  .ex-row > :nth-child(8){ grid-column: 6 / span 1; justify-self:end; } /* cestino */
+}
+
+/* sotto i 720px: una colonna a blocchi */
+@media (max-width: 720px){
+  .ex-row{
+    grid-template-columns: 1fr;
+  }
+  .ex-row > *{
+    width: 100%;
+  }
+  .ex-row > :last-child{
+    justify-self: end;
+  }
+}
+
+/* ---------- INPUT E BOTTONI: larghezza piena su schermi stretti ---------- */
+@media (max-width: 980px){
+  .input, .btn, select.input{
+    min-width: 0;
+  }
+}
+
+/* ---------- TITOLO/HEADER HERO: un pelo più stretto ---------- */
+.hero{
+  background: linear-gradient(90deg, var(--primary-2) 0%, #7a50ff 100%);
+  color:#fff; border:none; border-radius:20px; padding:18px 16px; /* -4px */
+  box-shadow:0 14px 30px rgba(93, 80, 255, .25);
+}
+/* evita qualunque overflow orizzontale del pannello di destra */
+.tpl-editor{ overflow-x:auto; }
+
+/* assicura che i campi dentro .ex-row non forzino larghezze */
+.ex-row > *{ min-width: 0; }

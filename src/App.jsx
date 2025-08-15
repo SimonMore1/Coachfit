@@ -1,104 +1,104 @@
+// App.jsx — routing a schede / allenamenti / PT
 import { useEffect, useState } from "react";
-import { DEMO_USERS, DEMO_PATIENTS } from "./utils";
-import TemplateBuilder from "./pages/TemplateBuilder.jsx";
+import "./index.css";
+
+// Pagine
 import UserDashboard from "./pages/UserDashboard.jsx";
+import TemplateBuilder from "./pages/TemplateBuilder.jsx";
 import PTDashboard from "./pages/PTDashboard.jsx";
 
-const STORAGE_KEY = "coachfit-v1";
+// Dati locali (mock) — manteniamo per ora localStorage
+import {
+  listUsers,
+  getActivePlan,
+} from "./dataApi.local";
 
-export default function App(){
-  const [users] = useState(DEMO_USERS);
-  const [currentUserId, setCurrentUserId] = useState("user-1");
-  const currentUser = users.find(u=>u.id===currentUserId);
+export default function App() {
+  // utenti caricati dal mock
+  const [users, setUsers] = useState([]);
+  const [currentUserId, setCurrentUserId] = useState("");
+  const [page, setPage] = useState("allenamenti"); // 'allenamenti' | 'schede' | 'pt'
 
-  // stato globale
-  const [templates, setTemplates] = useState([]);             // piani
-  const [assignments, setAssignments] = useState([]);         // assegnazioni PT->paziente
-  const [activePlans, setActivePlans] = useState({});         // { [userId]: planId }
-  const [workoutLogs, setWorkoutLogs] = useState([]);         // log esecuzioni
-  const [page, setPage] = useState("allenamenti");            // allenamenti | schede | pt
+  // carica utenti
+  useEffect(() => {
+    const us = listUsers();
+    setUsers(us);
+    // di default selezioniamo il primo USER (non PT)
+    const firstUser = us.find(u => u.role === "USER") || us[0];
+    if (firstUser) setCurrentUserId(firstUser.id);
+  }, []);
 
-  // persistenza
-  useEffect(()=>{ try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(raw){
-      const p=JSON.parse(raw);
-      setTemplates(p.templates||[]);
-      setAssignments(p.assignments||[]);
-      setActivePlans(p.activePlans||{});
-      setWorkoutLogs(p.workoutLogs||[]);
-      setCurrentUserId(p.currentUserId||"user-1");
-      setPage(p.page||"allenamenti");
-    }
-  }catch{} },[]);
-  useEffect(()=>{
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      templates, assignments, activePlans, workoutLogs, currentUserId, page
-    }));
-  },[templates,assignments,activePlans,workoutLogs,currentUserId,page]);
+  const currentUser = users.find(u => u.id === currentUserId) || null;
+  const isPT = currentUser?.role === "PT";
 
-  const setActivePlanForUser=(userId, planId)=>{
-    setActivePlans(prev=>({...prev, [userId]: planId}));
-  };
-
+  /* ---------------- Layout & Nav ---------------- */
   return (
-    <div>
-      {/* Topbar */}
-      <div className="topbar">
-        <div className="topbar-inner">
-          <div className="brand">
-            <div className="brand-dot" />
-            <span>CoachFit</span>
-            <span className="muted" style={{fontSize:12}}>MVP</span>
-          </div>
-          <div className="nav">
-            <select className="input" value={currentUserId} onChange={e=>setCurrentUserId(e.target.value)}>
-              {users.map(u=><option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
-            </select>
-            <button className={page==="allenamenti"?"active":""} onClick={()=>setPage("allenamenti")}>Allenamenti</button>
-            <button className={page==="schede"?"active":""} onClick={()=>setPage("schede")}>Schede</button>
-            {currentUser?.role==="PT" && (
-              <button className={page==="pt"?"active":""} onClick={()=>setPage("pt")}>Dashboard PT</button>
-            )}
-          </div>
+    <div className="app-shell">
+      {/* Header */}
+      <header className="app-header">
+        <div className="brand">
+          <span className="dot" /> <span className="brand-name">CoachFit</span>
+          <span className="badge">MVP</span>
         </div>
-      </div>
 
-      {/* Pagine */}
-      <div className="container">
-        {page==="allenamenti" && (
-          currentUser?.role==="USER"
-            ? <UserDashboard
-                currentUser={currentUser}
-                templates={templates}
-                assignments={assignments}
-                activePlans={activePlans}
-                setActivePlanForUser={setActivePlanForUser}
-                workoutLogs={workoutLogs}
-                setWorkoutLogs={setWorkoutLogs}
-              />
-            : <div className="card">Apri <b>Dashboard PT</b> per gestire i pazienti.</div>
+        <div className="header-actions">
+          {/* Selettore utente corrente */}
+          <select
+            className="input"
+            value={currentUserId}
+            onChange={(e) => setCurrentUserId(e.target.value)}
+          >
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name} ({u.role})
+              </option>
+            ))}
+          </select>
+
+          {/* Tabs */}
+          <nav className="tabs">
+            <button
+              className={`pill ${page === "allenamenti" ? "active" : ""}`}
+              onClick={() => setPage("allenamenti")}
+            >
+              Allenamenti
+            </button>
+            <button
+              className={`pill ${page === "schede" ? "active" : ""}`}
+              onClick={() => setPage("schede")}
+            >
+              Schede
+            </button>
+            <button
+              className={`pill ${page === "pt" ? "active" : ""}`}
+              onClick={() => setPage("pt")}
+              title="Dashboard Coach / PT"
+            >
+              PT
+            </button>
+          </nav>
+        </div>
+      </header>
+
+      {/* Corpo pagina */}
+      <main className="app-main">
+        {page === "allenamenti" && currentUser && (
+          <UserDashboard
+            owner={currentUser}                  // utente che sta usando l'app
+            activePlanId={getActivePlan(currentUser.id)}  // scheda attiva (se c'è)
+          />
         )}
 
-        {page==="schede" && (
+        {page === "schede" && (
           <TemplateBuilder
-            currentUser={currentUser}
-            templates={templates}
-            setTemplates={setTemplates}
-            setActivePlanForUser={setActivePlanForUser}
+            owner={currentUser || { id: "unknown", role: "USER", name: "Utente" }}
           />
         )}
 
-        {page==="pt" && currentUser?.role==="PT" && (
-          <PTDashboard
-            patients={DEMO_PATIENTS}
-            templates={templates}
-            assignments={assignments}
-            setAssignments={setAssignments}
-            workoutLogs={workoutLogs}
-          />
+        {page === "pt" && (
+          <PTDashboard />
         )}
-      </div>
+      </main>
     </div>
   );
 }

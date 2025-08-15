@@ -32,47 +32,79 @@ export function todayISO(){
   return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`;
 }
 
-// ====== Catalogo esercizi esteso (nome capitalizzato di default) ======
+// --- helper per creare un id semplice dai nomi (panca-piana, ecc.)
+function slug(s=""){
+  return s
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"") // rimuove accenti
+    .replace(/[^a-z0-9]+/g,"-")                     // tutto il resto -> trattino
+    .replace(/(^-|-$)/g,"");                        // toglie trattini agli estremi
+}
+
+// ====== Catalogo esercizi esteso ======
+// Campi: id, name, muscle, equipment, modality
 export const EXERCISE_CATALOG = [
-  // Petto
-  { name:"Panca Piana",             muscle:"Petto",     equipment:"Bilanciere", modality:"Spinta" },
-  { name:"Panca Inclinata Manubri", muscle:"Petto",     equipment:"Manubri",    modality:"Spinta" },
-  { name:"Chest Press",             muscle:"Petto",     equipment:"Macchina",   modality:"Spinta" },
-  { name:"Croci ai Cavi",           muscle:"Petto",     equipment:"Cavi",       modality:"Spinta" },
+  // Petto (modality: Spinta)
+  { id: slug("Panca Piana"),              name:"Panca Piana",              muscle:"Petto",     equipment:"Bilanciere", modality:"Spinta" },
+  { id: slug("Panca Inclinata Manubri"),  name:"Panca Inclinata Manubri",  muscle:"Petto",     equipment:"Manubri",    modality:"Spinta" },
+  { id: slug("Chest Press"),              name:"Chest Press",              muscle:"Petto",     equipment:"Macchina",   modality:"Spinta" },
+  { id: slug("Croci ai Cavi"),            name:"Croci ai Cavi",            muscle:"Petto",     equipment:"Cavi",       modality:"Spinta" },
 
-  // Schiena
-  { name:"Lat Machine",             muscle:"Schiena",   equipment:"Macchina",   modality:"Trazione" },
-  { name:"Rematore Manubrio",       muscle:"Schiena",   equipment:"Manubri",    modality:"Trazione" },
-  { name:"Trazioni alla Sbarra",    muscle:"Schiena",   equipment:"Corpo libero", modality:"Trazione" },
-  { name:"Pulldown ai Cavi",        muscle:"Schiena",   equipment:"Cavi",       modality:"Trazione" },
+  // Schiena (modality: Trazione)
+  { id: slug("Lat Machine"),              name:"Lat Machine",              muscle:"Schiena",   equipment:"Macchina",   modality:"Trazione" },
+  { id: slug("Rematore Manubrio"),        name:"Rematore Manubrio",        muscle:"Schiena",   equipment:"Manubri",    modality:"Trazione" },
+  { id: slug("Trazioni alla Sbarra"),     name:"Trazioni alla Sbarra",     muscle:"Schiena",   equipment:"Corpo libero", modality:"Trazione" },
+  { id: slug("Pulldown ai Cavi"),         name:"Pulldown ai Cavi",         muscle:"Schiena",   equipment:"Cavi",       modality:"Trazione" },
 
-  // Gambe
-  { name:"Squat",                   muscle:"Gambe",     equipment:"Bilanciere", modality:"Gambe" },
-  { name:"Affondi Manubri",         muscle:"Gambe",     equipment:"Manubri",    modality:"Gambe" },
-  { name:"Leg Press",               muscle:"Gambe",     equipment:"Macchina",   modality:"Gambe" },
-  { name:"Stacchi Rumeni",          muscle:"Gambe",     equipment:"Bilanciere", modality:"Gambe" },
-  { name:"Polpacci in Piedi",       muscle:"Gambe",     equipment:"Macchina",   modality:"Gambe" },
+  // Gambe (modality: Gambe)
+  { id: slug("Squat"),                    name:"Squat",                    muscle:"Gambe",     equipment:"Bilanciere", modality:"Gambe" },
+  { id: slug("Affondi Manubri"),          name:"Affondi Manubri",          muscle:"Gambe",     equipment:"Manubri",    modality:"Gambe" },
+  { id: slug("Leg Press"),                name:"Leg Press",                muscle:"Gambe",     equipment:"Macchina",   modality:"Gambe" },
+  { id: slug("Stacchi Rumeni"),           name:"Stacchi Rumeni",           muscle:"Gambe",     equipment:"Bilanciere", modality:"Gambe" },
+  { id: slug("Polpacci in Piedi"),        name:"Polpacci in Piedi",        muscle:"Gambe",     equipment:"Macchina",   modality:"Gambe" },
 
-  // Spalle
-  { name:"Lento Avanti Bilanciere", muscle:"Spalle",    equipment:"Bilanciere", modality:"Spalle" },
-  { name:"Arnold Press",            muscle:"Spalle",    equipment:"Manubri",    modality:"Spalle" },
-  { name:"Alzate Laterali",         muscle:"Spalle",    equipment:"Manubri",    modality:"Spalle" },
+  // Spalle (modality: Spalle)
+  { id: slug("Lento Avanti Bilanciere"),  name:"Lento Avanti Bilanciere",  muscle:"Spalle",    equipment:"Bilanciere", modality:"Spalle" },
+  { id: slug("Arnold Press"),             name:"Arnold Press",             muscle:"Spalle",    equipment:"Manubri",    modality:"Spalle" },
+  { id: slug("Alzate Laterali"),          name:"Alzate Laterali",          muscle:"Spalle",    equipment:"Manubri",    modality:"Spalle" },
 
-  // Braccia
-  { name:"Curl Manubri",            muscle:"Bicipiti",  equipment:"Manubri",    modality:"Braccia" },
-  { name:"Curl Bilanciere",         muscle:"Bicipiti",  equipment:"Bilanciere", modality:"Braccia" },
-  { name:"Pushdown ai Cavi",        muscle:"Tricipiti", equipment:"Cavi",       modality:"Braccia" },
-  { name:"French Press",            muscle:"Tricipiti", equipment:"Bilanciere", modality:"Braccia" },
+  // Braccia (modality: Braccia)
+  { id: slug("Curl Manubri"),             name:"Curl Manubri",             muscle:"Bicipiti",  equipment:"Manubri",    modality:"Braccia" },
+  { id: slug("Curl Bilanciere"),          name:"Curl Bilanciere",          muscle:"Bicipiti",  equipment:"Bilanciere", modality:"Braccia" },
+  { id: slug("Pushdown ai Cavi"),         name:"Pushdown ai Cavi",         muscle:"Tricipiti", equipment:"Cavi",       modality:"Braccia" },
+  { id: slug("French Press"),             name:"French Press",             muscle:"Tricipiti", equipment:"Bilanciere", modality:"Braccia" },
 
-  // Core
-  { name:"Plank",                   muscle:"Core",      equipment:"Corpo libero", modality:"Core" },
-  { name:"Crunch su Panca",         muscle:"Core",      equipment:"Panca",      modality:"Core" },
+  // Core (modality: Core)
+  { id: slug("Plank"),                    name:"Plank",                    muscle:"Core",      equipment:"Corpo libero", modality:"Core" },
+  { id: slug("Crunch su Panca"),          name:"Crunch su Panca",          muscle:"Core",      equipment:"Panca",      modality:"Core" },
+
+  // Extra popolari (per dare più scelta)
+  { id: slug("Panca Decline"),            name:"Panca Decline",            muscle:"Petto",     equipment:"Bilanciere", modality:"Spinta" },
+  { id: slug("Pullover Manubrio"),        name:"Pullover Manubrio",        muscle:"Schiena",   equipment:"Manubri",    modality:"Trazione" },
+  { id: slug("Rematore Bilanciere"),      name:"Rematore Bilanciere",      muscle:"Schiena",   equipment:"Bilanciere", modality:"Trazione" },
+  { id: slug("Leg Curl"),                 name:"Leg Curl",                 muscle:"Gambe",     equipment:"Macchina",   modality:"Gambe" },
+  { id: slug("Leg Extension"),            name:"Leg Extension",            muscle:"Gambe",     equipment:"Macchina",   modality:"Gambe" },
+  { id: slug("Alzate Frontali"),          name:"Alzate Frontali",          muscle:"Spalle",    equipment:"Manubri",    modality:"Spalle" },
+  { id: slug("Hammer Curl"),              name:"Hammer Curl",              muscle:"Bicipiti",  equipment:"Manubri",    modality:"Braccia" },
+  { id: slug("Dip alle Parallele"),       name:"Dip alle Parallele",       muscle:"Tricipiti", equipment:"Corpo libero", modality:"Braccia" },
 ];
 
 // Derivati per UI / filtri
 export const EXERCISE_NAMES = EXERCISE_CATALOG.map(e => e.name);
 export const EQUIPMENTS     = [...new Set(EXERCISE_CATALOG.map(e => e.equipment))].sort();
 export const MODALITIES     = [...new Set(EXERCISE_CATALOG.map(e => e.modality))].sort();
+
+// --- Libreria che usa il Builder (campo "equip" come si aspetta il componente)
+export const EXERCISE_LIBRARY = EXERCISE_CATALOG.map(e => ({
+  id: e.id,
+  name: e.name,
+  muscle: e.muscle,
+  equip: e.equipment,       // conversione equipment -> equip per il builder
+  // target di default (li potrai cambiare quando aggiungi l’esercizio in scheda)
+  targetSets: 3,
+  targetReps: 10,
+  targetWeight: 20,
+}));
 
 // ====== Heuristics per gruppo muscolare dal nome esercizio ======
 export function detectGroup(name){
