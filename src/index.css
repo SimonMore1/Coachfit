@@ -348,3 +348,30 @@ body{
   .tabs{ flex-wrap: wrap; row-gap: 6px; }
   .brand-name{ font-size:14px; }
 }
+/* ====== MOBILE FIX: lista | editor ====== */
+
+/* Evita che le colonne abbiano larghezze minime che forzano lo scroll orizzontale */
+@media (max-width: 900px){
+  .tpl-grid{
+    grid-template-columns: 1fr !important;  /* una colonna */
+  }
+  .tpl-grid > *{
+    min-width: 0;          /* importantissimo per evitare overflow */
+    width: 100%;
+  }
+  .tpl-list{
+    max-height: unset;     /* lascia scorrere tutta la pagina */
+  }
+}
+
+/* Le card non devono sforare il viewport */
+@media (max-width: 900px){
+  .card{
+    overflow: visible;
+  }
+}
+
+/* Piccolo fix generale: niente scroll orizzontale in pagina */
+html, body{
+  overflow-x: hidden;
+}
