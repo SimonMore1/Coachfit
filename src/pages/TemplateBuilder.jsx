@@ -4,7 +4,7 @@ import { EXERCISE_CATALOG, MUSCLE_GROUPS, capWords } from "../utils";
 
 function newTemplate(){
   return {
-    id: undefined, // nuovo finché non salvi sul cloud (verrà assegnato)
+    id: undefined, // viene assegnato al salvataggio cloud
     name: "Nuova scheda",
     days: [
       { id: crypto.randomUUID(), name: "Giorno 1", exercises: [] },
@@ -23,17 +23,18 @@ function newExerciseFrom(e){
 }
 
 export default function TemplateBuilder({ user, templates, saveTemplate, deleteTemplate }){
-  const [activeId, setActiveId] = useState(templates[0]?.id || null);
+  const [activeId, setActiveId]   = useState(templates[0]?.id || null);
   const active = useMemo(()=> templates.find(t=>t.id===activeId) || null, [templates, activeId]);
 
-  const [draft, setDraft] = useState(active || null);
-  const [dayIdx, setDayIdx] = useState(0);
+  const [draft, setDraft]         = useState(active || newTemplate());
+  const [dayIdx, setDayIdx]       = useState(0);
 
-  // filtri libreria
-  const [q, setQ] = useState("");
-  const [fGroup, setFGroup] = useState("");
-  const [fEquip, setFEquip] = useState("");
-  const [fMode,  setFMode]  = useState("");
+  // filtri libreria + ricerca
+  const [q, setQ]                 = useState("");
+  const [fGroup, setFGroup]       = useState("");
+  const [fEquip, setFEquip]       = useState("");
+  const [fMode,  setFMode]        = useState("");
+  const [selName, setSelName]     = useState(""); // elemento selezionato dal menù a tendina
 
   const groups     = MUSCLE_GROUPS;
   const equips     = useMemo(()=> [...new Set(EXERCISE_CATALOG.map(e=>e.equipment))], []);
@@ -49,16 +50,19 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
     });
   }, [q,fGroup,fEquip,fMode]);
 
+  // sync quando cambi template attivo
   function selectTemplate(t){
     setActiveId(t?.id ?? null);
     setDraft(structuredClone(t));
     setDayIdx(0);
+    setSelName("");
   }
   function addTemplate(){
     const t = newTemplate();
     setActiveId(undefined);
     setDraft(t);
     setDayIdx(0);
+    setSelName("");
   }
   function updateDraft(patch){ setDraft(prev => ({...prev, ...patch})); }
   function updateDayName(i, name){
@@ -76,12 +80,15 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
     updateDraft({ days });
     setDayIdx(Math.max(0, dayIdx-1));
   }
-  function addExerciseFromCatalog(item){
+  function addExerciseByName(name){
+    const item = EXERCISE_CATALOG.find(e=>e.name===name);
+    if (!item) return;
     const days = draft.days.map((d,idx)=>{
       if (idx!==dayIdx) return d;
       return { ...d, exercises: [...d.exercises, newExerciseFrom(item)] };
     });
     updateDraft({ days });
+    setSelName("");
   }
   function updateExercise(i, patch){
     const days = draft.days.map((d,idx)=>{
@@ -112,8 +119,9 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
 
   async function handleDelete(id){
     await deleteTemplate(id);
-    setDraft(null);
-    setActiveId(templates[0]?.id || null);
+    setDraft(newTemplate());
+    setActiveId(undefined);
+    setDayIdx(0);
   }
 
   return (
@@ -143,16 +151,13 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
                   <div className="tpl-actions">
                     <button
                       className="btn-ghost"
-                      onClick={(e)=>{
-                        e.stopPropagation();
-                        selectTemplate({...t, id: undefined, name: t.name+" (copia)"});
-                      }}
+                      onClick={(e)=>{ e.stopPropagation(); selectTemplate({...t, id: undefined, name: t.name+" (copia)"}); }}
                     >
                       Duplica
                     </button>
                     <button
                       className="btn-ghost"
-                      onClick={(e)=>{e.stopPropagation(); handleDelete(t.id);}}
+                      onClick={(e)=>{ e.stopPropagation(); handleDelete(t.id); }}
                     >
                       Elimina
                     </button>
@@ -170,12 +175,14 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
           ) : (
             <>
               <div className="grid" style={{gridTemplateColumns:"1.2fr .8fr auto auto auto", gap:8}}>
-                <input className="input" value={draft.name}
+                <input
+                  className="input"
+                  value={draft.name}
                   onChange={e=>updateDraft({name:capWords(e.target.value)})}
-                  placeholder="Nome scheda" />
+                  placeholder="Nome scheda"
+                />
 
-                <select className="input" value={dayIdx}
-                  onChange={e=>setDayIdx(Number(e.target.value))}>
+                <select className="input" value={dayIdx} onChange={e=>setDayIdx(Number(e.target.value))}>
                   {draft.days.map((d,idx)=><option key={d.id} value={idx}>{d.name}</option>)}
                 </select>
 
@@ -188,15 +195,61 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
 
               <div className="label">Esercizi — {draft.days[dayIdx]?.name?.toLowerCase()}</div>
 
-              {/* Inserimento + Libreria */}
-              <InsertRow
-                groups={groups} equips={equips} modalities={modalities}
-                onAdd={(ex)=> addExerciseFromCatalog(ex)}
-                filteredLib={filteredLib} q={q} setQ={setQ}
-                fGroup={fGroup} setFGroup={setFGroup}
-                fEquip={fEquip} setFEquip={setFEquip}
-                fMode={fMode} setFMode={setFMode}
-              />
+              {/* Riga INSERIMENTO: menù a tendina + filtri (tutto in una riga, responsive) */}
+              <div
+                className="grid"
+                style={{
+                  gridTemplateColumns:"1.2fr .8fr .8fr .8fr 1fr",
+                  gap:8,
+                  overflowX:"auto",
+                  paddingBottom:4
+                }}
+              >
+                <input
+                  className="input"
+                  placeholder="Cerca esercizio…"
+                  value={q}
+                  onChange={e=>setQ(e.target.value)}
+                />
+
+                <select className="input" value={fGroup} onChange={e=>setFGroup(e.target.value)}>
+                  <option value="">Tutti i gruppi</option>
+                  {groups.map(g=><option key={g} value={g}>{g}</option>)}
+                </select>
+
+                <select className="input" value={fEquip} onChange={e=>setFEquip(e.target.value)}>
+                  <option value="">Tutti gli attrezzi</option>
+                  {equips.map(g=><option key={g} value={g}>{g}</option>)}
+                </select>
+
+                <select className="input" value={fMode} onChange={e=>setFMode(e.target.value)}>
+                  <option value="">Tutte le modalità</option>
+                  {modalities.map(g=><option key={g} value={g}>{g}</option>)}
+                </select>
+
+                <div style={{display:"flex", gap:8}}>
+                  <select
+                    className="input"
+                    value={selName}
+                    onChange={e=>setSelName(e.target.value)}
+                    style={{ minWidth: 180 }}
+                  >
+                    <option value="">— Seleziona esercizio —</option>
+                    {filteredLib.map(item => (
+                      <option key={item.name} value={item.name}>
+                        {item.name} · {item.muscle} · {item.equipment}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="btn btn-primary"
+                    onClick={()=> addExerciseByName(selName)}
+                    disabled={!selName}
+                  >
+                    Aggiungi
+                  </button>
+                </div>
+              </div>
 
               {/* Elenco esercizi del giorno */}
               <ul className="ex-list">
@@ -246,77 +299,6 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
         </div>
       </div>
     </div>
-  );
-}
-
-function InsertRow({
-  groups, equips, modalities,
-  onAdd, filteredLib,
-  q,setQ, fGroup,setFGroup, fEquip,setFEquip, fMode,setFMode
-}){
-  const [sel, setSel] = useState(null);
-
-  return (
-    <>
-      {/* WRAP scrollabile: evita tagli dei dropdown e consente swipe orizzontale su mobile */}
-      <div className="insert-row-wrap">
-        <div className="insert-row">
-          <input
-            className="input"
-            placeholder="Cerca esercizio…"
-            value={q}
-            onChange={e=>setQ(e.target.value)}
-          />
-
-          <select className="input" value={fGroup} onChange={e=>setFGroup(e.target.value)}>
-            <option value="">Tutti i gruppi</option>
-            {groups.map(g=><option key={g} value={g}>{g}</option>)}
-          </select>
-
-          <select className="input" value={fEquip} onChange={e=>setFEquip(e.target.value)}>
-            <option value="">Tutti gli attrezzi</option>
-            {equips.map(x=><option key={x} value={x}>{x}</option>)}
-          </select>
-
-          <select className="input" value={fMode} onChange={e=>setFMode(e.target.value)}>
-            <option value="">Tutte le modalità</option>
-            {modalities.map(x=><option key={x} value={x}>{x}</option>)}
-          </select>
-
-          {/* segnaposti per serie/reps/kg quando si aggiunge dalla libreria */}
-          <div className="input" style={{display:"flex", alignItems:"center", gap:6}}>
-            <span>Seleziona</span>
-          </div>
-          <div className="input">—</div>
-          <div className="input">—</div>
-
-          <button
-            className="btn btn-primary"
-            onClick={()=> sel && onAdd(sel)}
-            disabled={!sel}
-          >
-            Aggiungi
-          </button>
-        </div>
-      </div>
-
-      {/* Libreria a chip */}
-      <div className="lib-box">
-        <div className="lib-list">
-          {filteredLib.map(item=>(
-            <button
-              key={item.name}
-              className={"chip selectable " + (sel?.name===item.name ? "active" : "")}
-              onClick={()=> setSel(item)}
-              title={`${item.muscle} · ${item.equipment}`}
-            >
-              {item.name}
-              <span className="chip muted" style={{marginLeft:6}}>{item.muscle}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    </>
   );
 }
 // === END: src/pages/TemplateBuilder.jsx ===
