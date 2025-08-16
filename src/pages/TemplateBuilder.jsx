@@ -1,19 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+// === START: src/pages/TemplateBuilder.jsx ===
+import { useMemo, useState } from "react";
 import { EXERCISE_CATALOG, MUSCLE_GROUPS, capWords } from "../utils";
 
-/* ----------------- helpers ----------------- */
-const LS_KEY = "coachfit-v1.templates";
-
-function readLS(){
-  try { return JSON.parse(localStorage.getItem(LS_KEY) || "[]"); }
-  catch { return []; }
-}
-function writeLS(templates){
-  localStorage.setItem(LS_KEY, JSON.stringify(templates));
-}
 function newTemplate(){
   return {
-    id: crypto.randomUUID(),
+    id: undefined, // nuovo finché non salvi sul cloud (verrà assegnato)
     name: "Nuova scheda",
     days: [
       { id: crypto.randomUUID(), name: "Giorno 1", exercises: [] },
@@ -27,25 +18,16 @@ function newExerciseFrom(e){
     name: e?.name || "",
     group: e?.muscle || "",
     equipment: e?.equipment || "",
-    sets: 3,
-    reps: 10,
-    kg: 20,
-    note: "",
+    sets: 3, reps: 10, kg: 20, note: ""
   };
 }
 
-/* ----------------- component ----------------- */
-export default function TemplateBuilder(){
-  // carico eventuali schede salvate; se è vuoto, NON creo nulla
-  const [templates, setTemplates] = useState(()=> readLS());
-  const [activeId, setActiveId]   = useState(()=> templates[0]?.id || null);
-  const active = useMemo(
-    ()=> templates.find(t => t.id===activeId) || null,
-    [templates, activeId]
-  );
+export default function TemplateBuilder({ user, templates, saveTemplate, deleteTemplate }){
+  const [activeId, setActiveId] = useState(templates[0]?.id || null);
+  const active = useMemo(()=> templates.find(t=>t.id===activeId) || null, [templates, activeId]);
 
-  // persistenza
-  useEffect(()=>{ writeLS(templates); }, [templates]);
+  const [draft, setDraft] = useState(active || null);
+  const [dayIdx, setDayIdx] = useState(0);
 
   // filtri libreria
   const [q, setQ] = useState("");
@@ -53,8 +35,8 @@ export default function TemplateBuilder(){
   const [fEquip, setFEquip] = useState("");
   const [fMode,  setFMode]  = useState("");
 
-  const groups   = MUSCLE_GROUPS;
-  const equips   = useMemo(()=> [...new Set(EXERCISE_CATALOG.map(e=>e.equipment))], []);
+  const groups     = MUSCLE_GROUPS;
+  const equips     = useMemo(()=> [...new Set(EXERCISE_CATALOG.map(e=>e.equipment))], []);
   const modalities = useMemo(()=> [...new Set(EXERCISE_CATALOG.map(e=>e.modality))], []);
 
   const filteredLib = useMemo(()=>{
@@ -67,94 +49,82 @@ export default function TemplateBuilder(){
     });
   }, [q,fGroup,fEquip,fMode]);
 
-  // giorno attivo nell’editor
-  const [dayIdx, setDayIdx] = useState(0);
-
-  /* ---- azioni lista ---- */
-  function addTemplate(){
-    const t = newTemplate();
-    const next = [t, ...templates];
-    setTemplates(next);
-    setActiveId(t.id);
+  function selectTemplate(t){
+    setActiveId(t?.id ?? null);
+    setDraft(structuredClone(t));
     setDayIdx(0);
   }
-  function dupTemplate(id){
-    const orig = templates.find(t=>t.id===id);
-    if (!orig) return;
-    const copy = {
-      ...structuredClone(orig),
-      id: crypto.randomUUID(),
-      name: orig.name + " (copia)"
-    };
-    setTemplates([copy, ...templates]);
-    setActiveId(copy.id);
+  function addTemplate(){
+    const t = newTemplate();
+    setActiveId(undefined);
+    setDraft(t);
+    setDayIdx(0);
   }
-  function delTemplate(id){
-    const next = templates.filter(t=>t.id!==id);
-    setTemplates(next);
-    if (activeId===id) setActiveId(next[0]?.id || null);
-  }
-
-  /* ---- editor ---- */
-  function updateActive(patch){
-    if (!active) return;
-    const next = templates.map(t => t.id===active.id ? {...active, ...patch} : t);
-    setTemplates(next);
-  }
+  function updateDraft(patch){ setDraft(prev => ({...prev, ...patch})); }
   function updateDayName(i, name){
-    if (!active) return;
-    const days = active.days.map((d,idx)=> idx===i ? {...d, name} : d);
-    updateActive({ days });
+    const days = draft.days.map((d,idx)=> idx===i ? {...d, name} : d);
+    updateDraft({ days });
   }
   function addDay(){
-    if (!active) return;
-    const days = [...active.days, { id: crypto.randomUUID(), name:`Giorno ${active.days.length+1}`, exercises: [] }];
-    updateActive({ days });
+    const days = [...draft.days, { id: crypto.randomUUID(), name:`Giorno ${draft.days.length+1}`, exercises: [] }];
+    updateDraft({ days });
     setDayIdx(days.length-1);
   }
   function removeDay(){
-    if (!active) return;
-    if (active.days.length<=1) return;
-    const days = active.days.toSpliced(dayIdx,1);
-    updateActive({ days });
+    if (draft.days.length<=1) return;
+    const days = draft.days.toSpliced(dayIdx,1);
+    updateDraft({ days });
     setDayIdx(Math.max(0, dayIdx-1));
   }
-
   function addExerciseFromCatalog(item){
-    if (!active) return;
-    const days = active.days.map((d,idx)=>{
+    const days = draft.days.map((d,idx)=>{
       if (idx!==dayIdx) return d;
       return { ...d, exercises: [...d.exercises, newExerciseFrom(item)] };
     });
-    updateActive({ days });
+    updateDraft({ days });
   }
   function updateExercise(i, patch){
-    if (!active) return;
-    const days = active.days.map((d,idx)=>{
+    const days = draft.days.map((d,idx)=>{
       if (idx!==dayIdx) return d;
       const exs = d.exercises.map((ex,ii)=> ii===i ? {...ex, ...patch} : ex);
       return { ...d, exercises: exs };
     });
-    updateActive({ days });
+    updateDraft({ days });
   }
   function removeExercise(i){
-    if (!active) return;
-    const days = active.days.map((d,idx)=>{
+    const days = draft.days.map((d,idx)=>{
       if (idx!==dayIdx) return d;
       const exs = d.exercises.toSpliced(i,1);
       return { ...d, exercises: exs };
     });
-    updateActive({ days });
+    updateDraft({ days });
+  }
+
+  async function handleSave(){
+    const saved = await saveTemplate({
+      id: draft.id,
+      name: draft.name,
+      days: draft.days
+    });
+    // saveTemplate in App aggiorna lo stato; qui risincronizziamo
+    const after = saved || draft;
+    selectTemplate(after);
+  }
+
+  async function handleDelete(id){
+    await deleteTemplate(id);
+    setDraft(null);
+    setActiveId(templates[0]?.id || null);
   }
 
   return (
     <div className="app-main">
       <h2 className="font-semibold" style={{fontSize:28, margin:"10px 0 14px"}}>
-        Builder schede — Utente: <span className="font-medium">Simone</span>
+        Builder schede — Utente: <span className="font-medium">{user?.name}</span>
       </h2>
 
       <div className="tpl-grid">
-        {/* --------- colonna sinistra: lista --------- */}
+        {/* SINISTRA: lista schede */}
         <div className="card">
           <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8}}>
             <div className="font-semibold">Le mie schede</div>
@@ -162,21 +132,18 @@ export default function TemplateBuilder(){
           </div>
 
           <div className="tpl-list">
-            {templates.length===0 && (
-              <div className="muted">Nessuna scheda salvata.</div>
-            )}
-
+            {templates.length===0 && (<div className="muted">Nessuna scheda salvata.</div>)}
             {templates.map(t=>{
               const daysCount = t.days.length;
               const exCount   = t.days.reduce((s,d)=> s + d.exercises.length, 0);
               const activeCls = t.id===activeId ? "tpl-item active" : "tpl-item";
               return (
-                <div key={t.id} className={activeCls} onClick={()=>{ setActiveId(t.id); setDayIdx(0); }}>
+                <div key={t.id} className={activeCls} onClick={()=>selectTemplate(t)}>
                   <div className="tpl-title">{t.name}</div>
                   <div className="muted">{daysCount} giorni — {exCount} esercizi</div>
                   <div className="tpl-actions">
-                    <button className="btn-ghost" onClick={(e)=>{e.stopPropagation(); dupTemplate(t.id);}}>Duplica</button>
-                    <button className="btn-ghost" onClick={(e)=>{e.stopPropagation(); delTemplate(t.id);}}>Elimina</button>
+                    <button className="btn-ghost" onClick={(e)=>{e.stopPropagation(); selectTemplate({...t, id: undefined, name: t.name+" (copia)"});}}>Duplica</button>
+                    <button className="btn-ghost" onClick={(e)=>{e.stopPropagation(); handleDelete(t.id);}}>Elimina</button>
                   </div>
                 </div>
               );
@@ -184,31 +151,32 @@ export default function TemplateBuilder(){
           </div>
         </div>
 
-        {/* --------- colonna destra: editor --------- */}
+        {/* DESTRA: editor */}
         <div className="card">
-          {!active ? (
+          {!draft ? (
             <div className="muted">Seleziona o crea una scheda per modificarla.</div>
           ) : (
             <>
-              <div className="grid" style={{gridTemplateColumns:"1.2fr .8fr auto auto", gap:8}}>
-                <input className="input" value={active.name}
-                  onChange={e=>updateActive({name:capWords(e.target.value)})}
+              <div className="grid" style={{gridTemplateColumns:"1.2fr .8fr auto auto auto", gap:8}}>
+                <input className="input" value={draft.name}
+                  onChange={e=>updateDraft({name:capWords(e.target.value)})}
                   placeholder="Nome scheda" />
 
                 <select className="input" value={dayIdx}
                   onChange={e=>setDayIdx(Number(e.target.value))}>
-                  {active.days.map((d,idx)=><option key={d.id} value={idx}>{d.name}</option>)}
+                  {draft.days.map((d,idx)=><option key={d.id} value={idx}>{d.name}</option>)}
                 </select>
 
                 <button className="btn" onClick={addDay}>+ Giorno</button>
                 <button className="btn" onClick={removeDay}>−</button>
+                <button className="btn btn-primary" onClick={handleSave}>💾 Salva su cloud</button>
               </div>
 
               <hr style={{border:"none", borderTop:"1px dashed #e2e8f0", margin:"12px 0"}}/>
 
-              <div className="label">Esercizi — {active.days[dayIdx]?.name?.toLowerCase()}</div>
+              <div className="label">Esercizi — {draft.days[dayIdx]?.name?.toLowerCase()}</div>
 
-              {/* riga inserimento */}
+              {/* Inserimento + Libreria */}
               <InsertRow
                 groups={groups} equips={equips} modalities={modalities}
                 onAdd={(ex)=> addExerciseFromCatalog(ex)}
@@ -218,13 +186,13 @@ export default function TemplateBuilder(){
                 fMode={fMode} setFMode={setFMode}
               />
 
-              {/* elenco esercizi del giorno */}
+              {/* Elenco esercizi del giorno */}
               <ul className="ex-list">
-                {active.days[dayIdx]?.exercises?.map((ex, i)=>(
+                {draft.days[dayIdx]?.exercises?.map((ex, i)=>(
                   <li key={ex.id} className="ex-row">
                     <input className="input" value={ex.name}
                       onChange={e=>updateExercise(i,{name:capWords(e.target.value)})}
-                      placeholder="Seleziona / scrivi nome"/>
+                      placeholder="Nome esercizio"/>
 
                     <select className="input" value={ex.group}
                       onChange={e=>updateExercise(i,{group:e.target.value})}>
@@ -257,7 +225,7 @@ export default function TemplateBuilder(){
                     <button className="btn" onClick={()=>removeExercise(i)}>🗑️</button>
                   </li>
                 ))}
-                {active.days[dayIdx]?.exercises?.length===0 && (
+                {draft.days[dayIdx]?.exercises?.length===0 && (
                   <div className="muted">Nessun esercizio in questo giorno.</div>
                 )}
               </ul>
@@ -269,14 +237,12 @@ export default function TemplateBuilder(){
   );
 }
 
-/* ------- componente riga di inserimento + libreria ------- */
 function InsertRow({
   groups, equips, modalities,
   onAdd, filteredLib,
   q,setQ, fGroup,setFGroup, fEquip,setFEquip, fMode,setFMode
 }){
   const [sel, setSel] = useState(null);
-
   return (
     <>
       <div className="grid" style={{gridTemplateColumns:"1.2fr .8fr .8fr .8fr .6fr .6fr .6fr 1fr", gap:8}}>
@@ -303,11 +269,7 @@ function InsertRow({
         <div className="input">—</div>
         <div className="input">—</div>
 
-        <button
-          className="btn btn-primary"
-          onClick={()=> sel && onAdd(sel)}
-          disabled={!sel}
-        >
+        <button className="btn btn-primary" onClick={()=> sel && onAdd(sel)} disabled={!sel}>
           Aggiungi
         </button>
       </div>
@@ -330,3 +292,4 @@ function InsertRow({
     </>
   );
 }
+// === END: src/pages/TemplateBuilder.jsx ===
