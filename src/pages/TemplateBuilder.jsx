@@ -106,7 +106,6 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
       name: draft.name,
       days: draft.days
     });
-    // saveTemplate in App aggiorna lo stato; qui risincronizziamo
     const after = saved || draft;
     selectTemplate(after);
   }
@@ -142,8 +141,21 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
                   <div className="tpl-title">{t.name}</div>
                   <div className="muted">{daysCount} giorni — {exCount} esercizi</div>
                   <div className="tpl-actions">
-                    <button className="btn-ghost" onClick={(e)=>{e.stopPropagation(); selectTemplate({...t, id: undefined, name: t.name+" (copia)"});}}>Duplica</button>
-                    <button className="btn-ghost" onClick={(e)=>{e.stopPropagation(); handleDelete(t.id);}}>Elimina</button>
+                    <button
+                      className="btn-ghost"
+                      onClick={(e)=>{
+                        e.stopPropagation();
+                        selectTemplate({...t, id: undefined, name: t.name+" (copia)"});
+                      }}
+                    >
+                      Duplica
+                    </button>
+                    <button
+                      className="btn-ghost"
+                      onClick={(e)=>{e.stopPropagation(); handleDelete(t.id);}}
+                    >
+                      Elimina
+                    </button>
                   </div>
                 </div>
               );
@@ -243,37 +255,52 @@ function InsertRow({
   q,setQ, fGroup,setFGroup, fEquip,setFEquip, fMode,setFMode
 }){
   const [sel, setSel] = useState(null);
+
   return (
     <>
-      <div className="grid" style={{gridTemplateColumns:"1.2fr .8fr .8fr .8fr .6fr .6fr .6fr 1fr", gap:8}}>
-        <input className="input" placeholder="Cerca esercizio…" value={q} onChange={e=>setQ(e.target.value)} />
+      {/* WRAP scrollabile: evita tagli dei dropdown e consente swipe orizzontale su mobile */}
+      <div className="insert-row-wrap">
+        <div className="insert-row">
+          <input
+            className="input"
+            placeholder="Cerca esercizio…"
+            value={q}
+            onChange={e=>setQ(e.target.value)}
+          />
 
-        <select className="input" value={fGroup} onChange={e=>setFGroup(e.target.value)}>
-          <option value="">Tutti i gruppi</option>
-          {groups.map(g=><option key={g} value={g}>{g}</option>)}
-        </select>
+          <select className="input" value={fGroup} onChange={e=>setFGroup(e.target.value)}>
+            <option value="">Tutti i gruppi</option>
+            {groups.map(g=><option key={g} value={g}>{g}</option>)}
+          </select>
 
-        <select className="input" value={fEquip} onChange={e=>setFEquip(e.target.value)}>
-          <option value="">Tutti gli attrezzi</option>
-          {equips.map(g=><option key={g} value={g}>{g}</option>)}
-        </select>
+          <select className="input" value={fEquip} onChange={e=>setFEquip(e.target.value)}>
+            <option value="">Tutti gli attrezzi</option>
+            {equips.map(x=><option key={x} value={x}>{x}</option>)}
+          </select>
 
-        <select className="input" value={fMode} onChange={e=>setFMode(e.target.value)}>
-          <option value="">Tutte le modalità</option>
-          {modalities.map(g=><option key={g} value={g}>{g}</option>)}
-        </select>
+          <select className="input" value={fMode} onChange={e=>setFMode(e.target.value)}>
+            <option value="">Tutte le modalità</option>
+            {modalities.map(x=><option key={x} value={x}>{x}</option>)}
+          </select>
 
-        <div className="input" style={{display:"flex", alignItems:"center", gap:6}}>
-          <span>Seleziona</span>
+          {/* segnaposti per serie/reps/kg quando si aggiunge dalla libreria */}
+          <div className="input" style={{display:"flex", alignItems:"center", gap:6}}>
+            <span>Seleziona</span>
+          </div>
+          <div className="input">—</div>
+          <div className="input">—</div>
+
+          <button
+            className="btn btn-primary"
+            onClick={()=> sel && onAdd(sel)}
+            disabled={!sel}
+          >
+            Aggiungi
+          </button>
         </div>
-        <div className="input">—</div>
-        <div className="input">—</div>
-
-        <button className="btn btn-primary" onClick={()=> sel && onAdd(sel)} disabled={!sel}>
-          Aggiungi
-        </button>
       </div>
 
+      {/* Libreria a chip */}
       <div className="lib-box">
         <div className="lib-list">
           {filteredLib.map(item=>(

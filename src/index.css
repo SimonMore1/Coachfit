@@ -23,6 +23,7 @@ body{
 
 /* ============ LAYOUT ============ */
 .container{max-width:1100px;margin:0 auto;padding:12px}
+
 .grid{display:grid;gap:12px}
 .grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
 .md\:grid-cols-3{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -45,9 +46,7 @@ body{
   border:1px solid var(--line);
   border-radius:999px;
   padding:6px 8px;
-  cursor:pointer;
 }
-.pill.active{background:#eef2ff;border-color:#c7d2fe;color:#3730a3}
 
 .input{
   display:inline-flex;align-items:center;
@@ -64,7 +63,8 @@ body{
   transition:transform .06s ease, box-shadow .12s ease;
 }
 .btn:active{transform:translateY(1px)}
-.btn-ghost{border:1px solid #e2e8f0;background:#fff;padding:4px 8px;border-radius:8px;cursor:pointer}
+.btn-ghost{background:#fff}
+.btn-ghost:hover{box-shadow:var(--shadow-soft)}
 .btn-primary{
   background:linear-gradient(90deg,var(--primary) 0%,var(--primary-2) 100%);
   border-color:transparent;color:#fff;font-weight:600;
@@ -72,11 +72,13 @@ body{
 }
 .btn-primary:hover{filter:saturate(1.05)}
 
-/* titoli util */
+/* titoli */
 .font-semibold{font-weight:600}
 .font-medium{font-weight:500}
 .text-slate-600{color:var(--muted)}
 .text-xs{font-size:12px}
+
+/* margini utility */
 .mt-3{margin-top:12px}
 .mb-3{margin-bottom:12px}
 
@@ -87,24 +89,46 @@ body{
   box-shadow:0 14px 30px rgba(93, 80, 255, .25);
 }
 
-/* ============ CALENDARIO (utente) ============ */
+/* ============ CALENDARIO ============ */
 .calendar{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:var(--shadow-soft)}
-.cal-head{font-weight:600;color:#334155;text-align:center;margin-bottom:10px;}
-.cal-weekdays{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;color:var(--muted);font-size:12px;margin:0 2px 6px;text-align:center;}
+.cal-head{
+  font-weight:600;color:#334155;text-align:center;margin-bottom:10px;
+}
+.cal-weekdays{
+  display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;
+  color:var(--muted);font-size:12px;margin:0 2px 6px;
+  text-align:center;
+}
 .grid-cols-7{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
-.cal-cell{position:relative;min-height:86px;background:#f8fafc;border:1px solid #eef2f7;border-radius:12px;padding:10px;box-shadow:inset 0 1px 0 #ffffff;}
+
+.cal-cell{
+  position:relative;min-height:86px;background:#f8fafc;
+  border:1px solid #eef2f7;border-radius:12px;padding:10px;
+  box-shadow:inset 0 1px 0 #ffffff;
+}
 .cal-cell:hover{background:#f3f6fb}
 .cal-cell.mute{opacity:.5}
+
 .cal-date{font-size:12px;color:#475569}
-.cal-dot{position:absolute;right:10px;bottom:10px;width:10px;height:10px;background:#22c55e;border-radius:999px;box-shadow:0 0 0 2px #e6ffed inset;}
+.cal-dot{
+  position:absolute;right:10px;bottom:10px;width:10px;height:10px;
+  background:#22c55e;border-radius:999px;box-shadow:0 0 0 2px #e6ffed inset;
+}
+
+/* evidenzia “oggi” (aggiungeremo class .today dal JSX) */
 .cal-cell.today{outline:2px solid #a5b4fc;outline-offset:2px}
+
+/* piccoli ritocchi ai box del riepilogo */
 .card .text-right .font-semibold{font-size:18px}
 
 /* HEATMAP attività (PT) */
-.hm-cell{width:16px;height:16px;border-radius:4px;cursor:pointer;transition:transform .05s ease, filter .1s ease;}
+.hm-cell{
+  width:16px;height:16px;border-radius:4px;cursor:pointer;
+  transition:transform .05s ease, filter .1s ease;
+}
 .hm-cell:hover{filter:brightness(1.05); transform:scale(1.05)}
 
-/* --------- app shell --------- */
+/* -------- App shell / header / tabs -------- */
 .app-shell{min-height:100vh;background:#f8fafc;color:#0f172a}
 .app-header{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;padding:10px 16px}
 .brand{display:flex;align-items:center;gap:8px;font-weight:700}
@@ -113,49 +137,99 @@ body{
 .dot{width:10px;height:10px;background:#2563eb;border-radius:50%}
 .header-actions{display:flex;align-items:center;gap:8px}
 .tabs{display:flex;gap:6px}
-.app-main{max-width:1040px;margin:0 auto;padding:16px;overflow-x:hidden}
+.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid #e2e8f0;background:#fff;padding:6px 10px;border-radius:999px;cursor:pointer}
+.pill.active{background:#eef2ff;border-color:#c7d2fe;color:#3730a3}
 
-/* --------- template builder layout --------- */
-.tpl-grid{display:grid;grid-template-columns:320px 1fr;gap:12px}
+.app-main{
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 12px;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+/* layout two-pane */
+.tpl-grid{display:grid;grid-template-columns:300px 1fr;gap:12px}
+@media(max-width:1200px){.tpl-grid{grid-template-columns:280px 1fr}}
 @media(max-width:900px){.tpl-grid{grid-template-columns:1fr}}
 
+/* cards */
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 1px 0 rgba(15,23,42,.04)}
 .muted{color:#64748b;font-size:12px}
 .label{color:#64748b;font-size:12px;margin-bottom:4px}
 
 /* lista schede */
 .tpl-list{display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 260px);overflow:auto;padding-right:4px}
-.tpl-item{border:1px solid #e2e8f0;border-radius:12px;padding:10px;cursor:pointer;background:#fff}
+.tpl-item{border:1px solid #e2e8f0;border-radius:12px;padding:10px;cursor:pointer}
 .tpl-item.active{outline:2px solid #c7d2fe;border-color:#c7d2fe;background:#eef2ff}
 .tpl-title{font-weight:600}
 .tpl-actions{display:flex;gap:6px;margin-top:6px}
+.btn-ghost{border:1px solid #e2e8f0;background:#fff;padding:4px 8px;border-radius:8px;cursor:pointer}
 .tpl-preview{margin-top:8px;display:flex;flex-direction:column;gap:4px}
 .tpl-day{display:flex;gap:8px;align-items:center}
 .day-badge{font-size:12px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:999px;padding:2px 8px}
 .chip{display:inline-flex;align-items:center;gap:6px;border:1px solid #e2e8f0;background:#fff;padding:4px 8px;border-radius:999px}
 .chip.muted{color:#64748b}
-.chip.selectable{cursor:pointer}
 
 /* editor esercizi */
 .ex-list{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
 .ex-row{
   display:grid;
-  grid-template-columns:1.3fr .8fr .8fr .5fr .5fr .5fr 1fr auto;
-  gap:8px;border:1px solid #e2e8f0;border-radius:10px;padding:8px;background:#fff;
+  grid-template-columns: 1.3fr .8fr .8fr .5fr .5fr .5fr 1fr auto;
+  gap:8px;border:1px solid #e2e8f0;border-radius:10px;padding:8px;background:#fff
 }
 
-/* --------- MOBILE: niente scroll orizzontale, layout in colonna --------- */
-@media (max-width: 780px){
-  .tpl-grid{grid-template-columns:1fr !important}
-  .tpl-list{
-    display:flex !important;
-    flex-direction:column !important;
-    gap:10px !important;
-    overflow:visible !important;
-    max-height:none !important;
-  }
-  .grid [class~="input"], .grid .btn, .ex-row .input, .ex-row .btn{min-width:0}
-  .ex-row{grid-template-columns:1fr 1fr}
+/* sotto i 1200px: due righe */
+@media (max-width: 1200px){
+  .ex-row{ grid-template-columns: 1fr .7fr .7fr .6fr .6fr; grid-auto-rows:auto; }
+  .ex-row > :nth-child(1){ grid-column: 1 / span 2; }
+  .ex-row > :nth-child(2){ grid-column: 3 / span 1; }
+  .ex-row > :nth-child(3){ grid-column: 4 / span 1; }
+  .ex-row > :nth-child(4){ grid-column: 5 / span 1; }
+  .ex-row > :nth-child(5){ grid-column: 1 / span 1; }
+  .ex-row > :nth-child(6){ grid-column: 2 / span 1; }
+  .ex-row > :nth-child(7){ grid-column: 3 / span 3; }
+  .ex-row > :nth-child(8){ grid-column: 6 / span 1; justify-self:end; }
 }
-@media (max-width: 520px){
-  .ex-row{grid-template-columns:1fr}
+
+/* sotto i 720px: una colonna */
+@media (max-width: 720px){
+  .ex-row{ grid-template-columns: 1fr; }
+  .ex-row > *{ width: 100%; }
+  .ex-row > :last-child{ justify-self: end; }
+}
+
+/* ---------- FIX DROPDOWN E RIGA INSERIMENTO ---------- */
+/* non tagliare i menu a tendina (es. su iPhone) */
+.card, .app-main, .tpl-grid { overflow: visible; }
+
+/* wrapper scrollabile orizzontale per la riga di inserimento */
+.insert-row-wrap{
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 6px;
+}
+.insert-row{
+  display: grid;
+  grid-template-columns: 1.2fr .8fr .8fr .8fr .6fr .6fr .6fr 1fr;
+  gap: 8px;
+  min-width: 980px;
+}
+@media (max-width: 1100px){
+  .insert-row{ min-width: 900px; }
+}
+@media (max-width: 800px){
+  .insert-row{ min-width: 780px; }
+}
+
+/* ---------- INPUT/BUTTON responsive ---------- */
+@media (max-width: 980px){
+  .input, .btn, select.input{ min-width: 0; }
+}
+
+/* HERO (leggermente più compatta) */
+.hero{
+  background: linear-gradient(90deg, var(--primary-2) 0%, #7a50ff 100%);
+  color:#fff; border:none; border-radius:20px; padding:18px 16px;
+  box-shadow:0 14px 30px rgba(93, 80, 255, .25);
 }
