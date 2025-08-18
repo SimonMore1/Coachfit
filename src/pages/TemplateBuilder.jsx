@@ -196,7 +196,6 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
 
               <div className="label">Esercizi — {draft.days[dayIdx]?.name?.toLowerCase()}</div>
 
-              {/* Inserimento + Filtri + Autocomplete + Select rinominata */}
               <InsertRow
                 groups={groups}
                 equips={equips}
@@ -272,7 +271,7 @@ function InsertRow({
   const inputRef = useRef(null);
   const sugBoxRef = useRef(null);
 
-  // suggerimenti: primi 8 match dall’elenco già filtrato (per coerenza con i dropdown)
+  // suggerimenti: primi 8 match dall’elenco già filtrato
   const suggestions = useMemo(()=>{
     if (!q.trim()) return [];
     const qLower = q.trim().toLowerCase();
@@ -304,7 +303,6 @@ function InsertRow({
     setSelIdx(idx);
     setQ("");
     setOpenSug(false);
-    // facoltativo: porta focus al select
     try { document.getElementById("exercise-select")?.focus(); } catch {}
   }
 
@@ -391,7 +389,7 @@ function InsertRow({
           {equips.map(g=><option key={g} value={g}>{g}</option>)}
         </select>
 
-        {/* Select principale rinominata */}
+        {/* Select principale: SOLO NOME */}
         <select
           id="exercise-select"
           className="input"
@@ -401,7 +399,7 @@ function InsertRow({
           <option value={-1}>— Elenco esercizi —</option>
           {filteredLib.map((item, idx)=>(
             <option key={item.name} value={idx}>
-              {item.name} · {item.muscle} · {item.equipment}
+              {item.name}
             </option>
           ))}
         </select>
