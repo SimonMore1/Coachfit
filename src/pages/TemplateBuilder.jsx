@@ -1,11 +1,11 @@
 // === START: src/pages/TemplateBuilder.jsx ===
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EXERCISE_CATALOG, MUSCLE_GROUPS, capWords } from "../utils";
 
-// --------- helpers ---------
+// ---------- helpers ----------
 function newTemplate(){
   return {
-    id: undefined, // nuovo finché non salvi sul cloud (verrà assegnato)
+    id: undefined,
     name: "Nuova scheda",
     days: [
       { id: crypto.randomUUID(), name: "Giorno 1", exercises: [] },
@@ -23,7 +23,17 @@ function newExerciseFrom(e){
   };
 }
 
-// --------- page ---------
+// debounce minimale senza librerie
+function useDebouncedValue(value, delay = 200){
+  const [debounced, setDebounced] = useState(value);
+  useEffect(()=>{
+    const t = setTimeout(()=> setDebounced(value), delay);
+    return ()=> clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+// ---------- page ----------
 export default function TemplateBuilder({ user, templates, saveTemplate, deleteTemplate }){
   const [activeId, setActiveId] = useState(templates[0]?.id || null);
   const active = useMemo(()=> templates.find(t=>t.id===activeId) || null, [templates, activeId]);
@@ -31,23 +41,24 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
   const [draft, setDraft] = useState(active || null);
   const [dayIdx, setDayIdx] = useState(0);
 
-  // --- FILTRI: q, gruppo, attrezzo (💡 rimosso “modalità”) ---
+  // --- FILTRI: q, gruppo, attrezzo ---
   const [q, setQ] = useState("");
+  const qDeb = useDebouncedValue(q, 200);
   const [fGroup, setFGroup] = useState("");
   const [fEquip, setFEquip] = useState("");
 
   const groups = MUSCLE_GROUPS;
   const equips = useMemo(()=> [...new Set(EXERCISE_CATALOG.map(e=>e.equipment))], []);
 
-  // lista filtrata (solo gruppo/attrezzo + ricerca testuale)
+  // lista filtrata (ricerca + filtri)
   const filteredLib = useMemo(()=>{
     return EXERCISE_CATALOG.filter(e=>{
-      if (q && !e.name.toLowerCase().includes(q.toLowerCase())) return false;
+      if (qDeb && !e.name.toLowerCase().includes(qDeb.toLowerCase())) return false;
       if (fGroup && e.muscle !== fGroup) return false;
       if (fEquip && e.equipment !== fEquip) return false;
       return true;
     });
-  }, [q, fGroup, fEquip]);
+  }, [qDeb, fGroup, fEquip]);
 
   function selectTemplate(t){
     setActiveId(t?.id ?? null);
@@ -185,7 +196,7 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
 
               <div className="label">Esercizi — {draft.days[dayIdx]?.name?.toLowerCase()}</div>
 
-              {/* Inserimento + Filtri (senza “Modalità”) */}
+              {/* Inserimento + Filtri + Autocomplete + Select rinominata */}
               <InsertRow
                 groups={groups}
                 equips={equips}
@@ -247,7 +258,7 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
   );
 }
 
-// --------- insert row (con dropdown esercizi) ---------
+// ---------- Insert row con Autocomplete + Select "Elenco esercizi" ----------
 function InsertRow({
   groups, equips,
   onAdd, filteredLib,
@@ -255,11 +266,68 @@ function InsertRow({
 }){
   const [selIdx, setSelIdx] = useState(-1);
 
+  // autocomplete
+  const [openSug, setOpenSug] = useState(false);
+  const [hoverIdx, setHoverIdx] = useState(0); // per ↑/↓
+  const inputRef = useRef(null);
+  const sugBoxRef = useRef(null);
+
+  // suggerimenti: primi 8 match dall’elenco già filtrato (per coerenza con i dropdown)
+  const suggestions = useMemo(()=>{
+    if (!q.trim()) return [];
+    const qLower = q.trim().toLowerCase();
+    const list = filteredLib.filter(e => e.name.toLowerCase().includes(qLower));
+    return list.slice(0, 8);
+  }, [q, filteredLib]);
+
+  useEffect(()=>{
+    setOpenSug(suggestions.length > 0);
+    setHoverIdx(0);
+  }, [suggestions.length]);
+
+  // click fuori → chiudi
+  useEffect(()=>{
+    function onClickOutside(e){
+      if (!sugBoxRef.current) return;
+      if (!sugBoxRef.current.contains(e.target) && e.target !== inputRef.current){
+        setOpenSug(false);
+      }
+    }
+    window.addEventListener("click", onClickOutside);
+    return ()=> window.removeEventListener("click", onClickOutside);
+  }, []);
+
   const selectedItem = selIdx >= 0 ? filteredLib[selIdx] : null;
+
+  function handlePickSuggestion(item){
+    const idx = filteredLib.findIndex(i => i.name === item.name);
+    setSelIdx(idx);
+    setQ("");
+    setOpenSug(false);
+    // facoltativo: porta focus al select
+    try { document.getElementById("exercise-select")?.focus(); } catch {}
+  }
+
+  function onInputKeyDown(e){
+    if (!openSug) return;
+    if (e.key === "ArrowDown"){
+      e.preventDefault();
+      setHoverIdx(i => Math.min(i + 1, suggestions.length - 1));
+    } else if (e.key === "ArrowUp"){
+      e.preventDefault();
+      setHoverIdx(i => Math.max(i - 1, 0));
+    } else if (e.key === "Enter"){
+      e.preventDefault();
+      const pick = suggestions[hoverIdx];
+      if (pick) handlePickSuggestion(pick);
+    } else if (e.key === "Escape"){
+      setOpenSug(false);
+    }
+  }
 
   return (
     <>
-      {/* 1 riga: ricerca + filtri + selettore + bottone */}
+      {/* 1 riga: ricerca + filtri + select elenco + bottone */}
       <div
         className="grid"
         style={{
@@ -269,12 +337,49 @@ function InsertRow({
           paddingBottom: 4
         }}
       >
-        <input
-          className="input"
-          placeholder="Cerca esercizio…"
-          value={q}
-          onChange={e=>setQ(e.target.value)}
-        />
+        {/* Ricerca con autocomplete */}
+        <div style={{ position: "relative" }}>
+          <input
+            ref={inputRef}
+            className="input"
+            placeholder="Cerca esercizio…"
+            value={q}
+            onChange={e=>setQ(e.target.value)}
+            onFocus={()=> setOpenSug(suggestions.length>0)}
+            onKeyDown={onInputKeyDown}
+            autoComplete="off"
+          />
+          {openSug && suggestions.length>0 && (
+            <div
+              ref={sugBoxRef}
+              className="card"
+              style={{
+                position:"absolute", top:"calc(100% + 6px)", left:0, right:0,
+                zIndex: 50, padding: 6, maxHeight: 260, overflowY:"auto"
+              }}
+            >
+              {suggestions.map((sug, i)=>(
+                <div
+                  key={sug.name + i}
+                  onMouseEnter={()=> setHoverIdx(i)}
+                  onClick={()=> handlePickSuggestion(sug)}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    background: i===hoverIdx ? "#eef2ff" : "transparent"
+                  }}
+                  title={`${sug.muscle} · ${sug.equipment}`}
+                >
+                  <div className="font-medium">{sug.name}</div>
+                  <div className="muted" style={{marginTop:2}}>
+                    {sug.muscle} · {sug.equipment}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         <select className="input" value={fGroup} onChange={e=>setFGroup(e.target.value)}>
           <option value="">Tutti i gruppi</option>
@@ -286,12 +391,14 @@ function InsertRow({
           {equips.map(g=><option key={g} value={g}>{g}</option>)}
         </select>
 
+        {/* Select principale rinominata */}
         <select
+          id="exercise-select"
           className="input"
           value={selIdx}
           onChange={e=>setSelIdx(Number(e.target.value))}
         >
-          <option value={-1}>— Seleziona esercizio —</option>
+          <option value={-1}>— Elenco esercizi —</option>
           {filteredLib.map((item, idx)=>(
             <option key={item.name} value={idx}>
               {item.name} · {item.muscle} · {item.equipment}
