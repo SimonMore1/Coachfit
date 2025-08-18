@@ -233,3 +233,48 @@ body{
   color:#fff; border:none; border-radius:20px; padding:18px 16px;
   box-shadow:0 14px 30px rgba(93, 80, 255, .25);
 }
+/* === CoachFit: container centrato per pagina Schede (desktop) === */
+.page-schede{
+  /* contenitore principale della pagina */
+  max-width: 1280px;       /* puoi portarlo a 1200 se preferisci */
+  margin: 0 auto;
+  padding: 0 20px;         /* respiro laterale */
+  width: 100%;
+}
+
+/* evitiamo scroll orizzontale e offset strani */
+.app-shell{ overflow-x: hidden; }
+
+/* griglia lista+editor, tarata per desktop */
+.tpl-grid{
+  display: grid;
+  grid-template-columns: 360px 1fr; /* lista 360px + editor */
+  gap: 16px;
+  align-items: start;
+}
+
+/* restringe un filo su schermi “medi” */
+@media (max-width: 1200px){
+  .tpl-grid{
+    grid-template-columns: 320px 1fr;
+    gap: 12px;
+  }
+}
+
+/* su tablet/mobile resta lo stack verticale già esistente */
+@media (max-width: 900px){
+  .tpl-grid{ grid-template-columns: 1fr; }
+}
+
+/* libreria a colonna con scroll, così nulla “spinge” orizzontalmente */
+.lib-list-vertical{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* pulsanti/CTA restano dentro il container (niente posizionamenti assoluti) */
+.page-schede .btn{ position: relative; }
