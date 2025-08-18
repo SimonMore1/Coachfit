@@ -2,9 +2,10 @@
 import { useMemo, useState } from "react";
 import { EXERCISE_CATALOG, MUSCLE_GROUPS, capWords } from "../utils";
 
+// --------- helpers ---------
 function newTemplate(){
   return {
-    id: undefined,
+    id: undefined, // nuovo finché non salvi sul cloud (verrà assegnato)
     name: "Nuova scheda",
     days: [
       { id: crypto.randomUUID(), name: "Giorno 1", exercises: [] },
@@ -22,6 +23,7 @@ function newExerciseFrom(e){
   };
 }
 
+// --------- page ---------
 export default function TemplateBuilder({ user, templates, saveTemplate, deleteTemplate }){
   const [activeId, setActiveId] = useState(templates[0]?.id || null);
   const active = useMemo(()=> templates.find(t=>t.id===activeId) || null, [templates, activeId]);
@@ -29,25 +31,23 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
   const [draft, setDraft] = useState(active || null);
   const [dayIdx, setDayIdx] = useState(0);
 
-  // filtri libreria (per input e select)
+  // --- FILTRI: q, gruppo, attrezzo (💡 rimosso “modalità”) ---
   const [q, setQ] = useState("");
   const [fGroup, setFGroup] = useState("");
   const [fEquip, setFEquip] = useState("");
-  const [fMode,  setFMode]  = useState("");
 
-  const groups     = MUSCLE_GROUPS;
-  const equips     = useMemo(()=> [...new Set(EXERCISE_CATALOG.map(e=>e.equipment))], []);
-  const modalities = useMemo(()=> [...new Set(EXERCISE_CATALOG.map(e=>e.modality))], []);
+  const groups = MUSCLE_GROUPS;
+  const equips = useMemo(()=> [...new Set(EXERCISE_CATALOG.map(e=>e.equipment))], []);
 
+  // lista filtrata (solo gruppo/attrezzo + ricerca testuale)
   const filteredLib = useMemo(()=>{
     return EXERCISE_CATALOG.filter(e=>{
       if (q && !e.name.toLowerCase().includes(q.toLowerCase())) return false;
-      if (fGroup && e.muscle!==fGroup) return false;
-      if (fEquip && e.equipment!==fEquip) return false;
-      if (fMode  && e.modality!==fMode) return false;
+      if (fGroup && e.muscle !== fGroup) return false;
+      if (fEquip && e.equipment !== fEquip) return false;
       return true;
     });
-  }, [q,fGroup,fEquip,fMode]);
+  }, [q, fGroup, fEquip]);
 
   function selectTemplate(t){
     setActiveId(t?.id ?? null);
@@ -117,7 +117,7 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
   }
 
   return (
-    <div className="page-schede">
+    <div className="app-main">
       <h2 className="font-semibold" style={{fontSize:28, margin:"10px 0 14px"}}>
         Builder schede — Utente: <span className="font-medium">{user?.name}</span>
       </h2>
@@ -141,8 +141,18 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
                   <div className="tpl-title">{t.name}</div>
                   <div className="muted">{daysCount} giorni — {exCount} esercizi</div>
                   <div className="tpl-actions">
-                    <button className="btn-ghost" onClick={(e)=>{e.stopPropagation(); selectTemplate({...t, id: undefined, name: t.name+" (copia)"});}}>Duplica</button>
-                    <button className="btn-ghost" onClick={(e)=>{e.stopPropagation(); handleDelete(t.id);}}>Elimina</button>
+                    <button
+                      className="btn-ghost"
+                      onClick={(e)=>{e.stopPropagation(); selectTemplate({...t, id: undefined, name: t.name+" (copia)"});}}
+                    >
+                      Duplica
+                    </button>
+                    <button
+                      className="btn-ghost"
+                      onClick={(e)=>{e.stopPropagation(); handleDelete(t.id);}}
+                    >
+                      Elimina
+                    </button>
                   </div>
                 </div>
               );
@@ -175,15 +185,18 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
 
               <div className="label">Esercizi — {draft.days[dayIdx]?.name?.toLowerCase()}</div>
 
+              {/* Inserimento + Filtri (senza “Modalità”) */}
               <InsertRow
-                groups={groups} equips={equips} modalities={modalities}
+                groups={groups}
+                equips={equips}
                 onAdd={(ex)=> addExerciseFromCatalog(ex)}
-                filteredLib={filteredLib} q={q} setQ={setQ}
+                filteredLib={filteredLib}
+                q={q} setQ={setQ}
                 fGroup={fGroup} setFGroup={setFGroup}
                 fEquip={fEquip} setFEquip={setFEquip}
-                fMode={fMode} setFMode={setFMode}
               />
 
+              {/* Elenco esercizi del giorno */}
               <ul className="ex-list">
                 {draft.days[dayIdx]?.exercises?.map((ex, i)=>(
                   <li key={ex.id} className="ex-row">
@@ -234,16 +247,34 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
   );
 }
 
+// --------- insert row (con dropdown esercizi) ---------
 function InsertRow({
-  groups, equips, modalities,
+  groups, equips,
   onAdd, filteredLib,
-  q,setQ, fGroup,setFGroup, fEquip,setFEquip, fMode,setFMode
+  q, setQ, fGroup, setFGroup, fEquip, setFEquip
 }){
-  const [sel, setSel] = useState(null);
+  const [selIdx, setSelIdx] = useState(-1);
+
+  const selectedItem = selIdx >= 0 ? filteredLib[selIdx] : null;
+
   return (
     <>
-      <div className="grid" style={{gridTemplateColumns:"1.2fr .8fr .8fr .8fr .6fr .6fr .6fr 1fr", gap:8}}>
-        <input className="input" placeholder="Cerca esercizio…" value={q} onChange={e=>setQ(e.target.value)} />
+      {/* 1 riga: ricerca + filtri + selettore + bottone */}
+      <div
+        className="grid"
+        style={{
+          gridTemplateColumns: "1.2fr .8fr .8fr 1.2fr auto",
+          gap: 8,
+          overflowX: "auto",
+          paddingBottom: 4
+        }}
+      >
+        <input
+          className="input"
+          placeholder="Cerca esercizio…"
+          value={q}
+          onChange={e=>setQ(e.target.value)}
+        />
 
         <select className="input" value={fGroup} onChange={e=>setFGroup(e.target.value)}>
           <option value="">Tutti i gruppi</option>
@@ -255,37 +286,26 @@ function InsertRow({
           {equips.map(g=><option key={g} value={g}>{g}</option>)}
         </select>
 
-        <select className="input" value={fMode} onChange={e=>setFMode(e.target.value)}>
-          <option value="">Tutte le modalità</option>
-          {modalities.map(g=><option key={g} value={g}>{g}</option>)}
+        <select
+          className="input"
+          value={selIdx}
+          onChange={e=>setSelIdx(Number(e.target.value))}
+        >
+          <option value={-1}>— Seleziona esercizio —</option>
+          {filteredLib.map((item, idx)=>(
+            <option key={item.name} value={idx}>
+              {item.name} · {item.muscle} · {item.equipment}
+            </option>
+          ))}
         </select>
 
-        <div className="input" style={{display:"flex", alignItems:"center", gap:6}}>
-          <span>Seleziona</span>
-        </div>
-        <div className="input">—</div>
-        <div className="input">—</div>
-
-        <button className="btn btn-primary" onClick={()=> sel && onAdd(sel)} disabled={!sel}>
+        <button
+          className="btn btn-primary"
+          onClick={()=> selectedItem && onAdd(selectedItem)}
+          disabled={!selectedItem}
+        >
           Aggiungi
         </button>
-      </div>
-
-      {/* Libreria “selezionabile” come elenco a scorrimento verticale */}
-      <div className="lib-box">
-        <div className="lib-list-vertical">
-          {filteredLib.map(item=>(
-            <button
-              key={item.name}
-              className={"chip selectable " + (sel?.name===item.name ? "active" : "")}
-              onClick={()=> setSel(item)}
-              title={`${item.muscle} · ${item.equipment}`}
-            >
-              {item.name}
-              <span className="chip muted" style={{marginLeft:6}}>{item.muscle}</span>
-            </button>
-          ))}
-        </div>
       </div>
     </>
   );
