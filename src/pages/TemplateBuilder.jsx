@@ -13,13 +13,25 @@ function newTemplate(){
     ],
   };
 }
-function newExerciseFrom(e){
+
+// crea un esercizio “scheda” a partire da un record di catalogo
+function newExerciseFrom(e, orderIndex = 0){
   return {
     id: crypto.randomUUID(),
+
+    // VISIBILI
     name: e?.name || "",
+    sets: 3,
+    reps: 10,
+    kg: null,           // opzionale
+    note: "",           // opzionale
+
+    // NASCOSTI (ma salvati)
     group: e?.muscle || "",
     equipment: e?.equipment || "",
-    sets: 3, reps: 10, kg: 20, note: ""
+
+    // opzionale per ordinamento stabile lato DB in futuro
+    orderIndex,
   };
 }
 
@@ -60,6 +72,16 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
     });
   }, [qDeb, fGroup, fEquip]);
 
+  // focus automatico su "Serie" quando aggiungo un esercizio
+  const [lastAddedId, setLastAddedId] = useState(null);
+  const setRefs = useRef(new Map());
+  useEffect(()=>{
+    if (!lastAddedId) return;
+    const el = setRefs.current.get(lastAddedId);
+    if (el) { el.focus(); }
+    setLastAddedId(null);
+  }, [lastAddedId]);
+
   function selectTemplate(t){
     setActiveId(t?.id ?? null);
     setDraft(structuredClone(t));
@@ -72,10 +94,7 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
     setDayIdx(0);
   }
   function updateDraft(patch){ setDraft(prev => ({...prev, ...patch})); }
-  function updateDayName(i, name){
-    const days = draft.days.map((d,idx)=> idx===i ? {...d, name} : d);
-    updateDraft({ days });
-  }
+
   function addDay(){
     const days = [...draft.days, { id: crypto.randomUUID(), name:`Giorno ${draft.days.length+1}`, exercises: [] }];
     updateDraft({ days });
@@ -87,13 +106,19 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
     updateDraft({ days });
     setDayIdx(Math.max(0, dayIdx-1));
   }
+
   function addExerciseFromCatalog(item){
     const days = draft.days.map((d,idx)=>{
       if (idx!==dayIdx) return d;
-      return { ...d, exercises: [...d.exercises, newExerciseFrom(item)] };
+      const ex = newExerciseFrom(item, d.exercises.length);
+      const next = { ...d, exercises: [...d.exercises, ex] };
+      // memorizzo per focus
+      setLastAddedId(ex.id);
+      return next;
     });
     updateDraft({ days });
   }
+
   function updateExercise(i, patch){
     const days = draft.days.map((d,idx)=>{
       if (idx!==dayIdx) return d;
@@ -102,10 +127,18 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
     });
     updateDraft({ days });
   }
+
   function removeExercise(i){
     const days = draft.days.map((d,idx)=>{
       if (idx!==dayIdx) return d;
+      const ex = d.exercises[i];
+      if (!ex) return d;
+      // conferma morbida
+      const ok = window.confirm?.(`Rimuovere "${ex.name}"?`) ?? true;
+      if (!ok) return d;
       const exs = d.exercises.toSpliced(i,1);
+      // riallinea orderIndex
+      exs.forEach((e, k)=> e.orderIndex = k);
       return { ...d, exercises: exs };
     });
     updateDraft({ days });
@@ -121,7 +154,7 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
     selectTemplate(after);
   }
 
-  async function handleDelete(id){
+  async function handleDeleteTemplate(id){
     await deleteTemplate(id);
     setDraft(null);
     setActiveId(templates[0]?.id || null);
@@ -160,7 +193,7 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
                     </button>
                     <button
                       className="btn-ghost"
-                      onClick={(e)=>{e.stopPropagation(); handleDelete(t.id);}}
+                      onClick={(e)=>{e.stopPropagation(); handleDeleteTemplate(t.id);}}
                     >
                       Elimina
                     </button>
@@ -177,6 +210,7 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
             <div className="muted">Seleziona o crea una scheda per modificarla.</div>
           ) : (
             <>
+              {/* Barra superiore: nome scheda + switch giorno + azioni */}
               <div className="grid" style={{gridTemplateColumns:"1.2fr .8fr auto auto auto", gap:8}}>
                 <input className="input" value={draft.name}
                   onChange={e=>updateDraft({name:capWords(e.target.value)})}
@@ -196,6 +230,7 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
 
               <div className="label">Esercizi — {draft.days[dayIdx]?.name?.toLowerCase()}</div>
 
+              {/* Inserimento + Filtri + Select */}
               <InsertRow
                 groups={groups}
                 equips={equips}
@@ -209,40 +244,61 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
               {/* Elenco esercizi del giorno */}
               <ul className="ex-list">
                 {draft.days[dayIdx]?.exercises?.map((ex, i)=>(
-                  <li key={ex.id} className="ex-row">
-                    <input className="input" value={ex.name}
-                      onChange={e=>updateExercise(i,{name:capWords(e.target.value)})}
-                      placeholder="Nome esercizio"/>
+                  <li
+                    key={ex.id}
+                    // card compatta (non usiamo la vecchia .ex-row a colonne)
+                    className="card"
+                    style={{padding:"10px", display:"flex", flexDirection:"column", gap:8}}
+                  >
+                    {/* Header: nome + cestino */}
+                    <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+                      <div className="chip" title={`${ex.group} · ${ex.equipment}`}>{ex.name}</div>
+                      <button className="btn" onClick={()=>removeExercise(i)} aria-label="Rimuovi">🗑️</button>
+                    </div>
 
-                    <select className="input" value={ex.group}
-                      onChange={e=>updateExercise(i,{group:e.target.value})}>
-                      <option value="">Gruppo</option>
-                      {groups.map(g=><option key={g} value={g}>{g}</option>)}
-                    </select>
+                    {/* Riga A: Serie / Reps */}
+                    <div className="grid" style={{gridTemplateColumns:"1fr 1fr", gap:8}}>
+                      <input
+                        ref={node=>{
+                          if (node) setRefs.current.set(ex.id, node);
+                          else setRefs.current.delete(ex.id);
+                        }}
+                        className="input"
+                        type="number"
+                        min={1}
+                        value={ex.sets ?? 3}
+                        onChange={e=>updateExercise(i,{sets:Number(e.target.value) || 0})}
+                        placeholder="Serie"
+                      />
+                      <input
+                        className="input"
+                        type="number"
+                        min={1}
+                        value={ex.reps ?? 10}
+                        onChange={e=>updateExercise(i,{reps:Number(e.target.value) || 0})}
+                        placeholder="Ripetizioni"
+                      />
+                    </div>
 
-                    <select className="input" value={ex.equipment}
-                      onChange={e=>updateExercise(i,{equipment:e.target.value})}>
-                      <option value="">Attrezzo</option>
-                      {equips.map(g=><option key={g} value={g}>{g}</option>)}
-                    </select>
-
-                    <input className="input" type="number" value={ex.sets}
-                      onChange={e=>updateExercise(i,{sets:Number(e.target.value)})}
-                      placeholder="Serie"/>
-
-                    <input className="input" type="number" value={ex.reps}
-                      onChange={e=>updateExercise(i,{reps:Number(e.target.value)})}
-                      placeholder="Reps"/>
-
-                    <input className="input" type="number" value={ex.kg}
-                      onChange={e=>updateExercise(i,{kg:Number(e.target.value)})}
-                      placeholder="Kg"/>
-
-                    <input className="input" value={ex.note}
-                      onChange={e=>updateExercise(i,{note:e.target.value})}
-                      placeholder="Note (opzionale)"/>
-
-                    <button className="btn" onClick={()=>removeExercise(i)}>🗑️</button>
+                    {/* Riga B: Kg (opz) / Note (opz) */}
+                    <div className="grid" style={{gridTemplateColumns:"1fr 3fr", gap:8}}>
+                      <input
+                        className="input"
+                        type="number"
+                        value={ex.kg ?? ""}
+                        onChange={e=>{
+                          const v = e.target.value;
+                          updateExercise(i,{kg: v==="" ? null : Number(v)});
+                        }}
+                        placeholder="Kg (opzionale)"
+                      />
+                      <input
+                        className="input"
+                        value={ex.note ?? ""}
+                        onChange={e=>updateExercise(i,{note:e.target.value})}
+                        placeholder="Note (opzionale)"
+                      />
+                    </div>
                   </li>
                 ))}
                 {draft.days[dayIdx]?.exercises?.length===0 && (
