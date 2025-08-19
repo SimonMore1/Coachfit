@@ -278,3 +278,84 @@ body{
 
 /* pulsanti/CTA restano dentro il container (niente posizionamenti assoluti) */
 .page-schede .btn{ position: relative; }
+/* === Autocomplete panel (suggerimenti) === */
+.ac-wrap{ position:relative; }
+.ac-panel{
+  position:absolute; top:42px; left:0; right:0;
+  background:#fff; border:1px solid #e2e8f0; border-radius:12px;
+  box-shadow:0 12px 22px rgba(15,23,42,.10);
+  max-height:240px; overflow:auto; z-index:30;
+}
+.ac-item{ padding:10px 12px; cursor:pointer; }
+.ac-item:hover, .ac-item.active{ background:#f1f5f9; }
+.ac-empty{ padding:10px 12px; color:#64748b; }
+
+/* Riga inserimento: piccola griglia comoda */
+.lib-insert-row{
+  grid-template-columns: 1.3fr .9fr .9fr 1.1fr auto;
+  gap:8px;
+}
+
+/* === Card esercizio semplificata === */
+.ex-row-simple{
+  display:flex; flex-direction:column; gap:10px;
+  border:1px solid #e2e8f0; border-radius:12px; padding:10px; background:#fff;
+}
+.ex-title{
+  font-weight:600; background:#eef2ff; border:1px solid #c7d2fe;
+  padding:6px 10px; border-radius:999px; display:inline-block; width:max-content;
+}
+.ex-rowA, .ex-rowB{
+  display:grid; align-items:center; gap:8px;
+  grid-template-columns: auto 120px auto 120px auto;
+}
+.ex-rowB{ grid-template-columns: auto 120px auto 1fr auto; }
+/* === Autocomplete (già aggiunto in update precedente) === */
+.ac-wrap{ position:relative; }
+.ac-panel{
+  position:absolute; top:42px; left:0; right:0;
+  background:#fff; border:1px solid #e2e8f0; border-radius:12px;
+  box-shadow:0 12px 22px rgba(15,23,42,.10);
+  max-height:240px; overflow:auto; z-index:30;
+}
+.ac-item{ padding:10px 12px; cursor:pointer; }
+.ac-item:hover, .ac-item.active{ background:#f1f5f9; }
+.ac-empty{ padding:10px 12px; color:#64748b; }
+.lib-insert-row{ grid-template-columns: 1.3fr .9fr .9fr 1.1fr auto; gap:8px; }
+
+/* === Card esercizio semplificata === */
+.ex-row-simple{
+  display:flex; flex-direction:column; gap:10px;
+  border:1px solid #e2e8f0; border-radius:12px; padding:10px; background:#fff;
+}
+.ex-title{
+  font-weight:600; background:#eef2ff; border:1px solid #c7d2fe;
+  padding:6px 10px; border-radius:999px; display:inline-block; width:max-content;
+}
+.ex-rowA, .ex-rowB{
+  display:grid; align-items:center; gap:8px;
+  grid-template-columns: auto 120px auto 120px auto;
+}
+.ex-rowB{ grid-template-columns: auto 120px auto 1fr auto; }
+
+/* === Layout “Schede” con colonna riepilogo === */
+.tpl-grid.tpl-grid--with-summary{
+  display:grid;
+  grid-template-columns: 0.9fr 1.4fr 0.7fr; /* lista | editor | riepilogo */
+  gap:16px;
+}
+/* Pannello riepilogo */
+.summary-panel{ position:sticky; top:88px; height:fit-content; align-self:start; }
+.sum-list{ list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:6px; }
+.sum-row{ display:flex; justify-content:space-between; align-items:center; padding:6px 8px; border:1px solid #e2e8f0; border-radius:10px; background:#fff; }
+.sum-group{ font-weight:500; }
+.sum-sets{ font-weight:700; }
+.sum-total{ text-align:right; }
+
+/* Responsive: sotto i 1100px il riepilogo va sotto l’editor (full width) */
+@media (max-width: 1100px){
+  .tpl-grid.tpl-grid--with-summary{
+    grid-template-columns: 1fr; /* stack */
+  }
+  .summary-panel{ position:static; }
+}
