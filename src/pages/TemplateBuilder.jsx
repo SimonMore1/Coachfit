@@ -6,7 +6,8 @@ import { EXERCISE_CATALOG, MUSCLE_GROUPS, capWords } from "../utils";
 function newTemplate(){
   return {
     id: undefined,
-    name: "Nuova scheda",
+    // 👇 campo vuoto (niente “Nuova scheda”)
+    name: "",
     days: [
       { id: crypto.randomUUID(), name: "Giorno 1", exercises: [] },
       { id: crypto.randomUUID(), name: "Giorno 2", exercises: [] },
@@ -30,7 +31,7 @@ function newExerciseFrom(e, orderIndex = 0){
     group: e?.muscle || "",
     equipment: e?.equipment || "",
 
-    // opzionale per ordinamento stabile lato DB in futuro
+    // ordinamento
     orderIndex,
   };
 }
@@ -52,6 +53,9 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
 
   const [draft, setDraft] = useState(active || null);
   const [dayIdx, setDayIdx] = useState(0);
+
+  // ref per focus automatico sul campo nome scheda
+  const nameRef = useRef(null);
 
   // --- FILTRI: q, gruppo, attrezzo ---
   const [q, setQ] = useState("");
@@ -87,12 +91,16 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
     setDraft(structuredClone(t));
     setDayIdx(0);
   }
+
   function addTemplate(){
     const t = newTemplate();
     setActiveId(undefined);
     setDraft(t);
     setDayIdx(0);
+    // 👇 focus automatico sul campo nome
+    setTimeout(()=> nameRef.current?.focus(), 0);
   }
+
   function updateDraft(patch){ setDraft(prev => ({...prev, ...patch})); }
 
   function addDay(){
@@ -112,7 +120,6 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
       if (idx!==dayIdx) return d;
       const ex = newExerciseFrom(item, d.exercises.length);
       const next = { ...d, exercises: [...d.exercises, ex] };
-      // memorizzo per focus
       setLastAddedId(ex.id);
       return next;
     });
@@ -133,11 +140,9 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
       if (idx!==dayIdx) return d;
       const ex = d.exercises[i];
       if (!ex) return d;
-      // conferma morbida
       const ok = window.confirm?.(`Rimuovere "${ex.name}"?`) ?? true;
       if (!ok) return d;
       const exs = d.exercises.toSpliced(i,1);
-      // riallinea orderIndex
       exs.forEach((e, k)=> e.orderIndex = k);
       return { ...d, exercises: exs };
     });
@@ -145,12 +150,14 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
   }
 
   async function handleSave(){
+    // 👇 se il nome è vuoto, usiamo un fallback prima di salvare
+    const nameToPersist = draft.name?.trim() || "Scheda senza titolo";
     const saved = await saveTemplate({
       id: draft.id,
-      name: draft.name,
+      name: nameToPersist,
       days: draft.days
     });
-    const after = saved || draft;
+    const after = saved || { ...draft, name: nameToPersist };
     selectTemplate(after);
   }
 
@@ -187,7 +194,7 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
                   <div className="tpl-actions">
                     <button
                       className="btn-ghost"
-                      onClick={(e)=>{e.stopPropagation(); selectTemplate({...t, id: undefined, name: t.name+" (copia)"});}}
+                      onClick={(e)=>{e.stopPropagation(); selectTemplate({...t, id: undefined, name: ""}); setTimeout(()=>nameRef.current?.focus(),0);}}
                     >
                       Duplica
                     </button>
@@ -212,9 +219,13 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
             <>
               {/* Barra superiore: nome scheda + switch giorno + azioni */}
               <div className="grid" style={{gridTemplateColumns:"1.2fr .8fr auto auto auto", gap:8}}>
-                <input className="input" value={draft.name}
-                  onChange={e=>updateDraft({name:capWords(e.target.value)})}
-                  placeholder="Nome scheda" />
+                <input
+                  ref={nameRef}
+                  className="input"
+                  value={draft.name}
+                  onChange={e=>updateDraft({name:e.target.value})}
+                  placeholder="Nome scheda…"
+                />
 
                 <select className="input" value={dayIdx}
                   onChange={e=>setDayIdx(Number(e.target.value))}>
@@ -246,7 +257,6 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
                 {draft.days[dayIdx]?.exercises?.map((ex, i)=>(
                   <li
                     key={ex.id}
-                    // card compatta (non usiamo la vecchia .ex-row a colonne)
                     className="card"
                     style={{padding:"10px", display:"flex", flexDirection:"column", gap:8}}
                   >
@@ -323,7 +333,7 @@ function InsertRow({
 
   // autocomplete
   const [openSug, setOpenSug] = useState(false);
-  const [hoverIdx, setHoverIdx] = useState(0); // per ↑/↓
+  const [hoverIdx, setHoverIdx] = useState(0);
   const inputRef = useRef(null);
   const sugBoxRef = useRef(null);
 
