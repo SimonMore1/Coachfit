@@ -1,333 +1,257 @@
 // === START: src/pages/UserDashboard.jsx ===
 import { useEffect, useMemo, useState } from "react";
-
-// ---------- util date ----------
-function toISO(d) {
-  const z = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
-}
-function isSameDay(a, b) {
-  return a.getFullYear() === b.getFullYear() &&
-         a.getMonth() === b.getMonth() &&
-         a.getDate() === b.getDate();
-}
-function startOfWeekMonday(d) {
-  const copy = new Date(d);
-  const day = (copy.getDay() + 6) % 7; // 0 = lun
-  copy.setDate(copy.getDate() - day);
-  copy.setHours(0,0,0,0);
-  return copy;
-}
-function startOfMonth(d) {
-  const copy = new Date(d.getFullYear(), d.getMonth(), 1);
-  copy.setHours(0,0,0,0);
-  return copy;
-}
-function addDays(d, n) {
-  const copy = new Date(d);
-  copy.setDate(copy.getDate() + n);
-  return copy;
-}
-function getMonthGrid(base) {
-  // ritorna 42 giorni (6 settimane) per la griglia mese
-  const first = startOfMonth(base);
-  const gridStart = startOfWeekMonday(first);
-  const days = [];
-  for (let i = 0; i < 42; i++) days.push(addDays(gridStart, i));
-  return days;
-}
-function weekDays(base) {
-  const start = startOfWeekMonday(base);
-  return Array.from({ length: 7 }, (_, i) => addDays(start, i));
-}
-
-// ---------- storage (per utente) ----------
-function loadCalendarData(userId) {
-  try {
-    const raw = localStorage.getItem(`coachfit-calendar-${userId}`);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-function saveCalendarData(userId, data) {
-  localStorage.setItem(`coachfit-calendar-${userId}`, JSON.stringify(data || {}));
-}
+import { format, addMonths, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, isSameMonth, isSameDay } from "date-fns";
+import { it } from "date-fns/locale";
 
 /**
- * Box per attivare una scheda come piano corrente dell’utente.
- * (lasciata invariata come richiesto)
+ * Props attese:
+ *  - user
+ *  - activePlan               { id, name, days: [...] } | null
+ *  - setActivePlanForUser     (tpl|null) => Promise
+ *  - templates                [{id,name,days}]
+ *  - workoutLogs              [{id?, user_id?, date: 'YYYY-MM-DD', entries: [...] }]
+ *  - setWorkoutLogs           (fn)
+ *  - pushWorkoutLog           ({date, entries}) => Promise<boolean>
  */
-function ActivatePlanBox({ activePlan, templates, onActivate }) {
-  const hasActive = Boolean(activePlan?.id);
-
-  return (
-    <div className="card" style={{ padding: 16 }}>
-      <div className="font-semibold" style={{ marginBottom: 12 }}>Inizia subito</div>
-
-      <div className="muted" style={{ marginBottom: 8 }}>
-        {hasActive ? `Piano attivo: ${activePlan.name}` : "Nessuna scheda attiva"}
-      </div>
-
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <select
-          className="input"
-          id="select-template"
-          defaultValue=""
-          style={{ minWidth: 220 }}
-        >
-          <option value="" disabled>— Scegli una scheda —</option>
-          {templates.map(t => (
-            <option key={t.id} value={t.id}>{t.name || "Scheda senza titolo"}</option>
-          ))}
-        </select>
-
-        <button
-          className="btn btn-primary"
-          onClick={() => {
-            const sel = document.getElementById("select-template");
-            const id = sel?.value || "";
-            const chosen = templates.find(t => t.id === id) || null;
-            onActivate(chosen);
-          }}
-        >
-          Attiva
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Calendario con toggle Mese/Settimana.
- * - Mostra dot verde sui giorni "allenato".
- * - Clic su giorno apre pannello note/allenato.
- * - Dati salvati in localStorage per utente.
- */
-function Calendar({
-  userId,
-  view, setView,
-  anchorDate, setAnchorDate,
-  data, setData
-}) {
-  const today = new Date();
-  const todayISO = toISO(today);
-
-  const weekdaysShort = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
-
-  const monthDays = useMemo(() => getMonthGrid(anchorDate), [anchorDate]);
-  const week = useMemo(() => weekDays(anchorDate), [anchorDate]);
-
-  // selezione giorno per note
-  const [selectedDate, setSelectedDate] = useState(null);
-  const selectedISO = selectedDate ? toISO(selectedDate) : null;
-  const selectedEntry = selectedISO ? data[selectedISO] || { trained: false, note: "" } : null;
-
-  function prev() {
-    if (view === "month") {
-      const d = new Date(anchorDate.getFullYear(), anchorDate.getMonth() - 1, 1);
-      setAnchorDate(d);
-    } else {
-      setAnchorDate(addDays(anchorDate, -7));
-    }
-  }
-  function next() {
-    if (view === "month") {
-      const d = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 1);
-      setAnchorDate(d);
-    } else {
-      setAnchorDate(addDays(anchorDate, +7));
-    }
-  }
-  function goToday() {
-    setAnchorDate(new Date());
-  }
-
-  function toggleTrainedFor(dateObj) {
-    const iso = toISO(dateObj);
-    const entry = data[iso] || { trained: false, note: "" };
-    const next = { ...data, [iso]: { ...entry, trained: !entry.trained } };
-    setData(next);
-    saveCalendarData(userId, next);
-  }
-  function saveNoteFor(dateObj, note) {
-    const iso = toISO(dateObj);
-    const entry = data[iso] || { trained: false, note: "" };
-    const next = { ...data, [iso]: { ...entry, note } };
-    setData(next);
-    saveCalendarData(userId, next);
-  }
-
-  // header mese/settimana
-  const monthTitle = anchorDate.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
-
-  return (
-    <div className="card calendar">
-      {/* Head */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <div className="cal-head" style={{ margin: 0, textTransform: "capitalize" }}>
-          {monthTitle}
-        </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button className="btn" onClick={prev}>◀</button>
-          <button className="btn" onClick={goToday}>Oggi</button>
-          <button className="btn" onClick={next}>▶</button>
-          <div className="pill">
-            <button
-              className={`btn-ghost ${view === "week" ? "active" : ""}`}
-              onClick={() => setView("week")}
-              style={{ padding: "6px 10px" }}
-            >
-              Settimana
-            </button>
-            <button
-              className={`btn-ghost ${view === "month" ? "active" : ""}`}
-              onClick={() => setView("month")}
-              style={{ padding: "6px 10px" }}
-            >
-              Mese
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* intestazione giorni */}
-      <div className="cal-weekdays">
-        {weekdaysShort.map((w) => <div key={w}>{w}</div>)}
-      </div>
-
-      {/* griglia */}
-      {view === "month" ? (
-        <div className="grid-cols-7">
-          {monthDays.map((d, idx) => {
-            const dISO = toISO(d);
-            const isMute = d.getMonth() !== anchorDate.getMonth();
-            const isToday = dISO === todayISO;
-            const entry = data[dISO];
-            const trained = Boolean(entry?.trained);
-            return (
-              <div
-                key={idx}
-                className={`cal-cell ${isMute ? "mute" : ""} ${isToday ? "today" : ""}`}
-                onClick={() => setSelectedDate(new Date(d))}
-                title={d.toLocaleDateString()}
-                style={{ cursor: "pointer" }}
-              >
-                <div className="cal-date">{d.getDate()}</div>
-                {trained && <div className="cal-dot" />}
-                {entry?.note && (
-                  <div style={{ position:"absolute", left:10, bottom:10, fontSize:11, color:"#64748b", maxWidth:"80%" }}>
-                    📝 {entry.note.length > 18 ? entry.note.slice(0,18) + "…" : entry.note}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="grid-cols-7">
-          {week.map((d, idx) => {
-            const dISO = toISO(d);
-            const isToday = dISO === todayISO;
-            const entry = data[dISO];
-            const trained = Boolean(entry?.trained);
-            return (
-              <div
-                key={idx}
-                className={`cal-cell ${isToday ? "today" : ""}`}
-                onClick={() => setSelectedDate(new Date(d))}
-                title={d.toLocaleDateString()}
-                style={{ cursor: "pointer" }}
-              >
-                <div className="cal-date">{d.getDate()}</div>
-                {trained && <div className="cal-dot" />}
-                {entry?.note && (
-                  <div style={{ position:"absolute", left:10, bottom:10, fontSize:11, color:"#64748b", maxWidth:"80%" }}>
-                    📝 {entry.note.length > 18 ? entry.note.slice(0,18) + "…" : entry.note}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* pannello note/allenato */}
-      {selectedDate && (
-        <div className="card" style={{ marginTop: 12 }}>
-          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <div className="font-semibold">
-              {selectedDate.toLocaleDateString("it-IT", { weekday:"long", day:"numeric", month:"long", year:"numeric" })}
-            </div>
-            <button className="btn" onClick={() => setSelectedDate(null)}>Chiudi</button>
-          </div>
-
-          <div style={{ display:"flex", gap:10, alignItems:"center", marginTop:10, flexWrap:"wrap" }}>
-            <label className="pill" style={{ gap:10, cursor:"pointer" }}>
-              <input
-                type="checkbox"
-                checked={Boolean(selectedEntry?.trained)}
-                onChange={() => toggleTrainedFor(selectedDate)}
-              />
-              Segna come allenato
-            </label>
-
-            <input
-              className="input"
-              style={{ minWidth: 280, flex: "1 1 280px" }}
-              placeholder="Note del giorno…"
-              value={selectedEntry?.note || ""}
-              onChange={(e) => saveNoteFor(selectedDate, e.target.value)}
-            />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function UserDashboard({
   user,
   activePlan,
   setActivePlanForUser,
   templates,
+  workoutLogs,
+  setWorkoutLogs,
+  pushWorkoutLog,
 }) {
-  const userId = user?.id || "user-1";
+  // ---------------- Banner "Inizia subito" (sopra al calendario)
+  const [pendingTplId, setPendingTplId] = useState(activePlan?.id || "");
+  useEffect(() => setPendingTplId(activePlan?.id || ""), [activePlan?.id]);
 
-  // stato calendario per utente
-  const [calView, setCalView] = useState("month"); // "month" | "week"
-  const [anchorDate, setAnchorDate] = useState(new Date());
-  const [calData, setCalData] = useState({}); // { "YYYY-MM-DD": { trained:boolean, note:string } }
+  async function handleActivate() {
+    const tpl = templates.find(t => t.id === pendingTplId) || null;
+    await setActivePlanForUser(tpl);
+  }
 
+  // ---------------- Calendario
+  const [view, setView] = useState("month"); // "month" | "week" (toggle a piacere)
+  const [cursor, setCursor] = useState(new Date());
+  const logsByDay = useMemo(() => {
+    const m = new Map();
+    for (const l of workoutLogs || []) {
+      m.set(l.date, true);
+    }
+    return m;
+  }, [workoutLogs]);
+
+  function toKey(d) { return format(d, "yyyy-MM-dd"); }
+  function DayCell({ day }) {
+    const k = toKey(day);
+    const trained = logsByDay.has(k);
+    return (
+      <div className={`cal-day ${isSameMonth(day, cursor) ? "" : "muted"} ${isSameDay(day, new Date()) ? "today" : ""}`}>
+        <div className="cal-day-num">{format(day, "d", { locale: it })}</div>
+        {trained && <span className="dot-trained" title="Allenamento registrato" />}
+      </div>
+    );
+  }
+
+  const monthGrid = useMemo(() => {
+    const start = startOfWeek(startOfMonth(cursor), { locale: it });
+    const end = endOfWeek(endOfMonth(cursor), { locale: it });
+    const days = [];
+    let d = start;
+    while (d <= end) {
+      days.push(d);
+      d = addDays(d, 1);
+    }
+    return days;
+  }, [cursor]);
+
+  // ---------------- Vista esecuzione del PIANO ATTIVO
+  const [selectedDayIdx, setSelectedDayIdx] = useState(0);
+  useEffect(() => setSelectedDayIdx(0), [activePlan?.id]);
+
+  // Costruisci la sessione "in esecuzione"
+  const session = useMemo(() => {
+    if (!activePlan?.days?.length) return null;
+    const day = activePlan.days[selectedDayIdx] || activePlan.days[0];
+    // entries: per ogni esercizio creo un array di 'sets' con done=false
+    const entries = (day.exercises || []).map(ex => {
+      const setsCount = Number(ex.sets || 3);
+      return {
+        exerciseId: ex.id,
+        name: ex.name,
+        muscle: ex.group || "",
+        equipment: ex.equipment || "",
+        sets: Array.from({ length: Math.max(1, setsCount) }, () => ({
+          reps: Number(ex.reps || 10),
+          kg: ex.kg ?? null,
+          done: false,
+        })),
+        note: "",
+      };
+    });
+    return { dayName: day.name, entries };
+  }, [activePlan?.id, selectedDayIdx]);
+
+  // Stato mutabile *solo* per la sessione corrente
+  const [runEntries, setRunEntries] = useState([]);
   useEffect(() => {
-    // carica quando cambia utente
-    setCalData(loadCalendarData(userId));
-  }, [userId]);
+    setRunEntries(session?.entries || []);
+  }, [session?.dayName]);
 
+  function toggleDone(eIdx, sIdx) {
+    setRunEntries(prev =>
+      prev.map((e, i) =>
+        i !== eIdx ? e : {
+          ...e,
+          sets: e.sets.map((s, j) => j !== sIdx ? s : { ...s, done: !s.done })
+        }
+      )
+    );
+  }
+  function setField(eIdx, sIdx, field, value) {
+    setRunEntries(prev =>
+      prev.map((e, i) =>
+        i !== eIdx ? e : {
+          ...e,
+          sets: e.sets.map((s, j) => j !== sIdx ? s : { ...s, [field]: value })
+        }
+      )
+    );
+  }
+  function setNote(eIdx, value) {
+    setRunEntries(prev =>
+      prev.map((e, i) => i !== eIdx ? e : { ...e, note: value })
+    );
+  }
+
+  async function saveSession() {
+    const date = format(new Date(), "yyyy-MM-dd");
+    const ok = await pushWorkoutLog({ date, entries: runEntries });
+    if (ok) {
+      // aggiorno la lista locale per marcare il calendario
+      setWorkoutLogs(prev => [{ id: crypto.randomUUID(), date, entries: runEntries }, ...prev]);
+      alert("Allenamento salvato!"); // semplice feedback
+    } else {
+      alert("Errore nel salvataggio.");
+    }
+  }
+
+  // ---------------- UI
   return (
     <div className="app-main">
       <h2 className="font-semibold" style={{ fontSize: 28, margin: "10px 0 14px" }}>
         Allenamenti — Utente: <span className="font-medium">{user?.name}</span>
       </h2>
 
-      <div className="tpl-grid" style={{ gridTemplateColumns: "1.2fr .8fr", alignItems: "start" }}>
-        {/* Colonna sinistra: calendario (mese/settimana + note + segna allenato) */}
-        <Calendar
-          userId={userId}
-          view={calView}
-          setView={setCalView}
-          anchorDate={anchorDate}
-          setAnchorDate={setAnchorDate}
-          data={calData}
-          setData={setCalData}
-        />
+      {/* Banner INIZIA SUBITO sopra il calendario */}
+      <div className="card" style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <div>
+          <div className="muted" style={{ marginBottom: 4 }}>Inizia subito</div>
+          <div className="muted">Piano attivo: <strong>{activePlan?.name || "Nessuno"}</strong></div>
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <select className="input" value={pendingTplId} onChange={e => setPendingTplId(e.target.value)}>
+            <option value="">— Scegli una scheda —</option>
+            {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          <button className="btn btn-primary" onClick={handleActivate}>Attiva</button>
+        </div>
+      </div>
 
-        {/* Colonna destra: attivazione piano (lasciata invariata) */}
-        <ActivatePlanBox
-          activePlan={activePlan}
-          templates={templates}
-          onActivate={(tpl) => setActivePlanForUser(tpl)}
-        />
+      {/* Layout a due colonne: Calendario + Esecuzione */}
+      <div className="grid" style={{ gridTemplateColumns: "1.2fr .8fr", gap: 16 }}>
+        {/* COLONNA 1: Calendario */}
+        <div className="card">
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
+            <button className="btn" onClick={() => setCursor(subMonths(cursor, 1))}>◀</button>
+            <div className="muted" style={{ minWidth: 160 }}>{format(cursor, "MMMM yyyy", { locale: it })}</div>
+            <button className="btn" onClick={() => setCursor(addMonths(cursor, 1))}>▶</button>
+            <div style={{ flex: 1 }} />
+            <button className={`btn ${view === "week" ? "btn-primary" : ""}`} onClick={() => setView("week")}>Settimana</button>
+            <button className={`btn ${view === "month" ? "btn-primary" : ""}`} onClick={() => setView("month")}>Mese</button>
+          </div>
+
+          {/* Header giorni */}
+          <div className="cal-grid cal-head">
+            {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map(d => <div key={d} className="cal-head-cell">{d}</div>)}
+          </div>
+
+          {/* Griglia giorni (mese) */}
+          <div className="cal-grid">
+            {monthGrid.map((d, i) => <DayCell key={i} day={d} />)}
+          </div>
+        </div>
+
+        {/* COLONNA 2: Vista esecuzione */}
+        <div className="card">
+          {!activePlan ? (
+            <div className="muted">Nessun piano attivo. Seleziona una scheda nel riquadro “Inizia subito” e premi <strong>Attiva</strong>.</div>
+          ) : !session ? (
+            <div className="muted">Questa scheda non contiene giorni o esercizi.</div>
+          ) : (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <div className="font-semibold">Allenamento di oggi</div>
+                <select className="input" value={selectedDayIdx} onChange={e => setSelectedDayIdx(Number(e.target.value))}>
+                  {activePlan.days.map((d, idx) => <option key={d.id || idx} value={idx}>{d.name}</option>)}
+                </select>
+              </div>
+
+              {runEntries.length === 0 && <div className="muted">Nessun esercizio in questo giorno.</div>}
+
+              <ul className="run-list">
+                {runEntries.map((ex, eIdx) => (
+                  <li key={eIdx} className="run-card">
+                    <div className="chip solid" style={{ marginBottom: 8 }}>{ex.name}</div>
+
+                    {/* set row */}
+                    <div className="sets-row">
+                      {ex.sets.map((s, sIdx) => (
+                        <label key={sIdx} className={`set-pill ${s.done ? "done" : ""}`}>
+                          <input
+                            type="checkbox"
+                            checked={s.done}
+                            onChange={() => toggleDone(eIdx, sIdx)}
+                          />
+                          <span>Set {sIdx + 1}</span>
+                          <input
+                            className="input mini"
+                            type="number"
+                            value={s.reps}
+                            onChange={e => setField(eIdx, sIdx, "reps", Number(e.target.value))}
+                            title="Ripetizioni"
+                            placeholder="Reps"
+                          />
+                          <input
+                            className="input mini"
+                            type="number"
+                            value={s.kg ?? ""}
+                            onChange={e => setField(eIdx, sIdx, "kg", e.target.value === "" ? null : Number(e.target.value))}
+                            title="Kg (opz.)"
+                            placeholder="Kg"
+                          />
+                        </label>
+                      ))}
+                    </div>
+
+                    <input
+                      className="input"
+                      placeholder="Note (opzionali)"
+                      value={ex.note}
+                      onChange={e => setNote(eIdx, e.target.value)}
+                    />
+                  </li>
+                ))}
+              </ul>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+                <button className="btn btn-primary" onClick={saveSession}>Salva sessione</button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
