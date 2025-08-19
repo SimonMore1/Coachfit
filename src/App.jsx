@@ -30,10 +30,25 @@ function Navbar({ user, page, setPage, UserSwitcher }) {
       <div className="header-actions">
         {UserSwitcher ? <UserSwitcher /> : null}
         <nav className="tabs">
-          <button className={`pill ${page==="allenamenti"?"active":""}`} onClick={()=>setPage("allenamenti")}>Allenamenti</button>
-          <button className={`pill ${page==="schede"?"active":""}`} onClick={()=>setPage("schede")}>Schede</button>
+          <button
+            className={`pill ${page === "allenamenti" ? "active" : ""}`}
+            onClick={() => setPage("allenamenti")}
+          >
+            Allenamenti
+          </button>
+          <button
+            className={`pill ${page === "schede" ? "active" : ""}`}
+            onClick={() => setPage("schede")}
+          >
+            Schede
+          </button>
           {isCoach && (
-            <button className={`pill ${page==="pt"?"active":""}`} onClick={()=>setPage("pt")}>PT</button>
+            <button
+              className={`pill ${page === "pt" ? "active" : ""}`}
+              onClick={() => setPage("pt")}
+            >
+              PT
+            </button>
           )}
         </nav>
       </div>
@@ -42,65 +57,81 @@ function Navbar({ user, page, setPage, UserSwitcher }) {
 }
 
 // ---------------- App ----------------
-export default function App(){
+export default function App() {
+  // utenti demo (PT + utente)
   const [users] = useState(DEMO_USERS);
   const [currentUserId, setCurrentUserId] = useState(users[0]?.id || "");
   const currentUser = useMemo(
-    ()=> users.find(u=>u.id===currentUserId),
+    () => users.find((u) => u.id === currentUserId),
     [users, currentUserId]
   );
 
   const [page, setPage] = useState("allenamenti");
 
-  // Stato cloud
+  // Stato “cloud” (Supabase con fallback localStorage via data.js)
   const [templates, setTemplatesState] = useState([]);       // [{id,name,days}]
-  const [activePlan, setActivePlanState] = useState(null);   // {id,name,days}
-  const [workoutLogs, setWorkoutLogsState] = useState([]);
+  const [activePlan, setActivePlanState] = useState(null);   // {id,name,days} | null
+  const [workoutLogs, setWorkoutLogsState] = useState([]);   // [{id,date,entries}, ...]
 
-  // Carica dati quando cambia utente
-  useEffect(()=>{
+  // Carica quando cambia utente
+  useEffect(() => {
     async function load() {
       const [tpls, plan, logs] = await Promise.all([
         getTemplates(currentUserId),
         getActivePlan(currentUserId),
-        getWorkoutLogs(currentUserId)
+        getWorkoutLogs(currentUserId),
       ]);
       setTemplatesState(tpls);
       setActivePlanState(plan);
       setWorkoutLogsState(logs);
     }
-    load();
+    if (currentUserId) load();
   }, [currentUserId]);
 
-  // API wrapper per passare alle pagine
+  // --- API wrapper per le pagine ---
   const saveTemplate = async (tpl) => {
     const saved = await upsertTemplate(currentUserId, tpl);
-    if (!saved) return;
+    if (!saved) return null;
     // aggiorna stato locale
-    setTemplatesState(prev => {
-      const exists = prev.some(t => t.id === saved.id);
-      return exists ? prev.map(t => t.id===saved.id ? saved : t) : [saved, ...prev];
+    setTemplatesState((prev) => {
+      const exists = prev.some((t) => t.id === saved.id);
+      return exists
+        ? prev.map((t) => (t.id === saved.id ? saved : t))
+        : [saved, ...prev];
     });
+    return saved;
   };
 
   const removeTemplate = async (id) => {
     const ok = await deleteTemplate(currentUserId, id);
-    if (ok) setTemplatesState(prev => prev.filter(t => t.id !== id));
+    if (ok) setTemplatesState((prev) => prev.filter((t) => t.id !== id));
   };
 
   const assignActivePlan = async (tpl) => {
     const ok = await setActivePlan(currentUserId, tpl || null);
     if (ok) setActivePlanState(tpl || null);
+    return ok;
   };
 
   const pushWorkoutLog = async (log) => {
     const ok = await addWorkoutLog(currentUserId, log);
-    if (ok) setWorkoutLogsState(prev => [{id: crypto.randomUUID(), ...log}, ...prev]);
+    if (ok) {
+      setWorkoutLogsState((prev) => [{ id: crypto.randomUUID(), ...log }, ...prev]);
+    }
+    return ok;
   };
 
   const UserSwitcher = () => (
-    <select className="input" value={currentUserId} onChange={e=>setCurrentUserId(e.target.value)}>
-      {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+    <select
+      className="input"
+      value={currentUserId}
+      onChange={(e) => setCurrentUserId(e.target.value)}
+    >
+      {users.map((u) => (
+        <option key={u.id} value={u.id}>
+          {u.name} ({u.role})
+        </option>
+      ))}
     </select>
   );
 
@@ -109,20 +140,19 @@ export default function App(){
       <Navbar user={currentUser} page={page} setPage={setPage} UserSwitcher={UserSwitcher} />
 
       <main className="app-main">
-        {page==="allenamenti" && (
+        {page === "allenamenti" && (
           <UserDashboard
             user={currentUser}
             activePlan={activePlan}
             setActivePlanForUser={assignActivePlan}
             templates={templates}
-            setTemplates={setTemplatesState}
             workoutLogs={workoutLogs}
             setWorkoutLogs={setWorkoutLogsState}
             pushWorkoutLog={pushWorkoutLog}
           />
         )}
 
-        {page==="schede" && (
+        {page === "schede" && (
           <TemplateBuilder
             user={currentUser}
             templates={templates}
@@ -131,16 +161,20 @@ export default function App(){
           />
         )}
 
-        {page==="pt" && (
+        {page === "pt" && (
           <PTDashboard
             coach={currentUser}
             patients={DEMO_PATIENTS}
             templates={templates}
-            assignments={[]}                  // integriamo dopo
-            setAssignments={()=>{}}
+            assignments={[]} // (da integrare su Supabase più avanti)
+            setAssignments={() => {}}
             workoutLogs={workoutLogs}
-            setActivePlanForUser={(tpl, userId)=>{/* estenderemo con Supabase multi-user */}}
-            activePlans={{[currentUserId]: activePlan}}
+            setActivePlanForUser={(tpl, userId) => {
+              // placeholder: quando abilitiamo multi-utente su Supabase
+              // potremo chiamare setActivePlan(userId, tpl)
+              console.log("TODO: setActivePlanForUser for", userId, tpl);
+            }}
+            activePlans={{ [currentUserId]: activePlan }}
           />
         )}
       </main>
