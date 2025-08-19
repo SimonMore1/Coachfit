@@ -6,8 +6,7 @@ import { EXERCISE_CATALOG, MUSCLE_GROUPS, capWords } from "../utils";
 function newTemplate(){
   return {
     id: undefined,
-    // 👇 campo vuoto (niente “Nuova scheda”)
-    name: "",
+    name: "", // campo vuoto (placeholder)
     days: [
       { id: crypto.randomUUID(), name: "Giorno 1", exercises: [] },
       { id: crypto.randomUUID(), name: "Giorno 2", exercises: [] },
@@ -15,28 +14,22 @@ function newTemplate(){
   };
 }
 
-// crea un esercizio “scheda” a partire da un record di catalogo
 function newExerciseFrom(e, orderIndex = 0){
   return {
     id: crypto.randomUUID(),
-
     // VISIBILI
     name: e?.name || "",
     sets: 3,
     reps: 10,
-    kg: null,           // opzionale
-    note: "",           // opzionale
-
-    // NASCOSTI (ma salvati)
+    kg: null,
+    note: "",
+    // NASCOSTI
     group: e?.muscle || "",
     equipment: e?.equipment || "",
-
-    // ordinamento
     orderIndex,
   };
 }
 
-// debounce minimale senza librerie
 function useDebouncedValue(value, delay = 200){
   const [debounced, setDebounced] = useState(value);
   useEffect(()=>{
@@ -54,10 +47,9 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
   const [draft, setDraft] = useState(active || null);
   const [dayIdx, setDayIdx] = useState(0);
 
-  // ref per focus automatico sul campo nome scheda
   const nameRef = useRef(null);
 
-  // --- FILTRI: q, gruppo, attrezzo ---
+  // FILTRI
   const [q, setQ] = useState("");
   const qDeb = useDebouncedValue(q, 200);
   const [fGroup, setFGroup] = useState("");
@@ -66,7 +58,6 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
   const groups = MUSCLE_GROUPS;
   const equips = useMemo(()=> [...new Set(EXERCISE_CATALOG.map(e=>e.equipment))], []);
 
-  // lista filtrata (ricerca + filtri)
   const filteredLib = useMemo(()=>{
     return EXERCISE_CATALOG.filter(e=>{
       if (qDeb && !e.name.toLowerCase().includes(qDeb.toLowerCase())) return false;
@@ -76,13 +67,12 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
     });
   }, [qDeb, fGroup, fEquip]);
 
-  // focus automatico su "Serie" quando aggiungo un esercizio
   const [lastAddedId, setLastAddedId] = useState(null);
   const setRefs = useRef(new Map());
   useEffect(()=>{
     if (!lastAddedId) return;
     const el = setRefs.current.get(lastAddedId);
-    if (el) { el.focus(); }
+    if (el) el.focus();
     setLastAddedId(null);
   }, [lastAddedId]);
 
@@ -97,7 +87,6 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
     setActiveId(undefined);
     setDraft(t);
     setDayIdx(0);
-    // 👇 focus automatico sul campo nome
     setTimeout(()=> nameRef.current?.focus(), 0);
   }
 
@@ -150,7 +139,6 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
   }
 
   async function handleSave(){
-    // 👇 se il nome è vuoto, usiamo un fallback prima di salvare
     const nameToPersist = draft.name?.trim() || "Scheda senza titolo";
     const saved = await saveTemplate({
       id: draft.id,
@@ -217,7 +205,6 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
             <div className="muted">Seleziona o crea una scheda per modificarla.</div>
           ) : (
             <>
-              {/* Barra superiore: nome scheda + switch giorno + azioni */}
               <div className="grid" style={{gridTemplateColumns:"1.2fr .8fr auto auto auto", gap:8}}>
                 <input
                   ref={nameRef}
@@ -241,7 +228,6 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
 
               <div className="label">Esercizi — {draft.days[dayIdx]?.name?.toLowerCase()}</div>
 
-              {/* Inserimento + Filtri + Select */}
               <InsertRow
                 groups={groups}
                 equips={equips}
@@ -252,7 +238,6 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
                 fEquip={fEquip} setFEquip={setFEquip}
               />
 
-              {/* Elenco esercizi del giorno */}
               <ul className="ex-list">
                 {draft.days[dayIdx]?.exercises?.map((ex, i)=>(
                   <li
@@ -260,13 +245,11 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
                     className="card"
                     style={{padding:"10px", display:"flex", flexDirection:"column", gap:8}}
                   >
-                    {/* Header: nome + cestino */}
                     <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
                       <div className="chip" title={`${ex.group} · ${ex.equipment}`}>{ex.name}</div>
                       <button className="btn" onClick={()=>removeExercise(i)} aria-label="Rimuovi">🗑️</button>
                     </div>
 
-                    {/* Riga A: Serie / Reps */}
                     <div className="grid" style={{gridTemplateColumns:"1fr 1fr", gap:8}}>
                       <input
                         ref={node=>{
@@ -290,7 +273,6 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
                       />
                     </div>
 
-                    {/* Riga B: Kg (opz) / Note (opz) */}
                     <div className="grid" style={{gridTemplateColumns:"1fr 3fr", gap:8}}>
                       <input
                         className="input"
@@ -323,21 +305,18 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
   );
 }
 
-// ---------- Insert row con Autocomplete + Select "Elenco esercizi" ----------
+// ---------- Insert row ----------
 function InsertRow({
   groups, equips,
   onAdd, filteredLib,
   q, setQ, fGroup, setFGroup, fEquip, setFEquip
 }){
   const [selIdx, setSelIdx] = useState(-1);
-
-  // autocomplete
   const [openSug, setOpenSug] = useState(false);
   const [hoverIdx, setHoverIdx] = useState(0);
   const inputRef = useRef(null);
   const sugBoxRef = useRef(null);
 
-  // suggerimenti: primi 8 match dall’elenco già filtrato
   const suggestions = useMemo(()=>{
     if (!q.trim()) return [];
     const qLower = q.trim().toLowerCase();
@@ -350,7 +329,6 @@ function InsertRow({
     setHoverIdx(0);
   }, [suggestions.length]);
 
-  // click fuori → chiudi
   useEffect(()=>{
     function onClickOutside(e){
       if (!sugBoxRef.current) return;
@@ -375,11 +353,9 @@ function InsertRow({
   function onInputKeyDown(e){
     if (!openSug) return;
     if (e.key === "ArrowDown"){
-      e.preventDefault();
-      setHoverIdx(i => Math.min(i + 1, suggestions.length - 1));
+      e.preventDefault(); setHoverIdx(i => Math.min(i + 1, suggestions.length - 1));
     } else if (e.key === "ArrowUp"){
-      e.preventDefault();
-      setHoverIdx(i => Math.max(i - 1, 0));
+      e.preventDefault(); setHoverIdx(i => Math.max(i - 1, 0));
     } else if (e.key === "Enter"){
       e.preventDefault();
       const pick = suggestions[hoverIdx];
@@ -391,7 +367,6 @@ function InsertRow({
 
   return (
     <>
-      {/* 1 riga: ricerca + filtri + select elenco + bottone */}
       <div
         className="grid"
         style={{
@@ -455,14 +430,14 @@ function InsertRow({
           {equips.map(g=><option key={g} value={g}>{g}</option>)}
         </select>
 
-        {/* Select principale: SOLO NOME */}
+        {/* 👇 Etichetta aggiornata SENZA trattini */}
         <select
           id="exercise-select"
           className="input"
           value={selIdx}
           onChange={e=>setSelIdx(Number(e.target.value))}
         >
-          <option value={-1}>— Elenco esercizi —</option>
+          <option value={-1}>Elenco esercizi</option>
           {filteredLib.map((item, idx)=>(
             <option key={item.name} value={idx}>
               {item.name}
