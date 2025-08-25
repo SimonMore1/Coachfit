@@ -1,440 +1,334 @@
-// src/pages/TemplateBuilder.jsx
-import React, { useMemo, useState } from "react";
-import SeriesSummary from "../components/SeriesSummary.jsx";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { EXERCISE_LIBRARY, EXERCISE_NAMES, detectGroup, clone } from "../data";
+import SeriesSummary from "../components/SeriesSummary";
 
-/** ========== UTIL ========== */
+/**
+ * Pagina "Schede" con:
+ * - nome scheda
+ * - giorno corrente
+ * - filtri (gruppi/attrezzi)
+ * - select "Elenco esercizi"
+ * - ricerca con AUTOCOMPLETE live sotto l'input
+ * - lista esercizi del giorno
+ * - pannello "Serie per gruppo" (SeriesSummary)
+ */
 
-// enumerazione sicura (evita `.entries is not iterable`)
-function* enumerate(arr = []) {
-  if (!Array.isArray(arr)) return;
-  for (let i = 0; i < arr.length; i++) yield [i, arr[i]];
-}
-
-// piccolo catalogo di esempio (se nel tuo progetto esiste già, puoi ignorarlo)
-const CATALOG = [
-  { id: "panca-piana", name: "Panca Piana", muscleGroup: "Petto" },
-  { id: "dip", name: "Dip alle Parallele", muscleGroup: "Tricipiti" },
-  { id: "lat", name: "Lat Machine", muscleGroup: "Schiena" },
-  { id: "squat", name: "Squat", muscleGroup: "Gambe" },
-];
-
-/** ========== BUILDER PAGE ========== */
-
-export default function TemplateBuilder() {
-  // stato della scheda (plan)
-  const [plan, setPlan] = useState(() => ({
-    id: null,
-    name: "",
-    days: [
-      // giorno 1 iniziale
-      { label: "Giorno 1", entries: [] },
-    ],
-  }));
-
-  // selezione giorno corrente
+export default function TemplateBuilder(){
+  // stato base
+  const [name, setName] = useState("");
   const [dayIndex, setDayIndex] = useState(0);
+  // struttura template: days: [{ entries: [...] }]
+  const [tpl, setTpl] = useState({ id: null, name: "", days: [{ entries: [] }] });
 
-  // filtri & ricerca per l’elenco esercizi
-  const [query, setQuery] = useState("");
-  const filteredCatalog = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return CATALOG;
-    return CATALOG.filter((e) =>
-      e.name.toLowerCase().includes(q)
-    );
-  }, [query]);
+  // ricerca + autocomplete
+  const [search, setSearch] = useState("");
+  const [openSug, setOpenSug] = useState(false);
+  const [sugs, setSugs] = useState([]);
+  const [activeIdx, setActiveIdx] = useState(-1);
+  const sugRef = useRef(null);
+  const inputRef = useRef(null);
+  const debounceRef = useRef(null);
 
-  const currentDay = plan.days?.[dayIndex];
+  // Filtri (restano, ma non toccano l’autocomplete)
+  const [groupFilter, setGroupFilter] = useState("Tutti i gruppi");
+  const [equipFilter, setEquipFilter] = useState("Tutti gli attrezzi");
 
-  /** ===== Handlers di base ===== */
+  // ==== helpers ====
 
-  const addDay = () => {
-    setPlan((p) => ({
-      ...p,
-      days: [
-        ...p.days,
-        { label: `Giorno ${p.days.length + 1}`, entries: [] },
-      ],
-    }));
-    setDayIndex(plan.days.length); // seleziona il nuovo giorno
-  };
-
-  const removeDay = () => {
-    setPlan((p) => {
-      if (p.days.length <= 1) return p;
-      const copy = [...p.days];
-      copy.splice(dayIndex, 1);
-      return { ...p, days: copy };
+  // Normalizza la struttura days/entries
+  useEffect(() => {
+    setTpl(prev => {
+      const safeDays = Array.isArray(prev?.days) ? prev.days : [{ entries: [] }];
+      const norm = safeDays.map(d => ({
+        ...d,
+        entries: Array.isArray(d.entries) ? d.entries : [],
+      }));
+      return { ...prev, name: prev?.name ?? "", days: norm };
     });
-    setDayIndex((i) => Math.max(0, i - 1));
-  };
+  }, []);
 
-  const addExerciseToDay = (ex) => {
-    setPlan((p) => {
-      const days = [...p.days];
-      const d = { ...(days[dayIndex]) };
-      const entries = [...(d.entries ?? [])];
+  // elenco esercizi (solo nomi) per select manuale
+  const selectOptions = useMemo(() => {
+    // filtra solo per select, non per autocomplete
+    return EXERCISE_LIBRARY
+      .filter(e => {
+        const okGroup = groupFilter === "Tutti i gruppi" || e.muscle === groupFilter;
+        const okEquip = equipFilter === "Tutti gli attrezzi" || e.equip === equipFilter;
+        return okGroup && okEquip;
+      })
+      .map(e => e.name)
+      .sort((a,b) => a.localeCompare(b));
+  }, [groupFilter, equipFilter]);
+
+  // aggiorna suggerimenti con debounce 200ms
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+    if (!search.trim()) { setSugs([]); setOpenSug(false); setActiveIdx(-1); return; }
+    debounceRef.current = setTimeout(() => {
+      const q = search.trim().toLowerCase();
+      // ranking semplice: inizia per > include
+      const starts = EXERCISE_NAMES.filter(n => n.toLowerCase().startsWith(q));
+      const includes = EXERCISE_NAMES.filter(n => !starts.includes(n) && n.toLowerCase().includes(q));
+      const list = [...starts, ...includes].slice(0, 10);
+      setSugs(list);
+      setOpenSug(true);
+      setActiveIdx(list.length ? 0 : -1);
+    }, 200);
+    return () => clearTimeout(debounceRef.current);
+  }, [search]);
+
+  // chiudi suggerimenti su click fuori
+  useEffect(() => {
+    function onDocClick(e){
+      if (!sugRef.current || sugRef.current.contains(e.target) || inputRef.current?.contains(e.target)) return;
+      setOpenSug(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
+
+  // ===== mutazioni =====
+
+  function ensureDay(idx){
+    setTpl(prev => {
+      const days = [...prev.days];
+      while (days.length <= idx) days.push({ entries: [] });
+      return { ...prev, days };
+    });
+  }
+
+  function addExerciseByName(name){
+    const lib = EXERCISE_LIBRARY.find(e => e.name === name);
+    if (!lib) return;
+
+    ensureDay(dayIndex);
+    setTpl(prev => {
+      const days = [...prev.days];
+      const day = { ...days[dayIndex] };
+      const entries = [...day.entries];
 
       entries.push({
-        id: `${ex.id}-${Date.now()}`,
-        exerciseId: ex.id,
-        exerciseName: ex.name,
-        muscleGroup: ex.muscleGroup || "Altro",
-        sets: 3,
-        reps: 10,
-        weight_kg: null,
+        id: `${lib.id}-${Date.now()}`, // row id client
+        exerciseId: lib.id,
+        exerciseName: lib.name,
+        muscleGroup: detectGroup(lib.name),
+        equipment: lib.equip,
+        sets: lib.targetSets ?? 3,
+        reps: lib.targetReps ?? 10,
+        weight_kg: lib.targetWeight ?? null,
         notes: "",
+        orderIndex: entries.length,
       });
 
-      d.entries = entries;
-      days[dayIndex] = d;
-      return { ...p, days };
+      day.entries = entries;
+      days[dayIndex] = day;
+      return { ...prev, days };
     });
-  };
+  }
 
-  const removeExerciseFromDay = (entryId) => {
-    setPlan((p) => {
-      const days = [...p.days];
-      const d = { ...(days[dayIndex]) };
-      d.entries = (d.entries ?? []).filter((r) => r.id !== entryId);
-      days[dayIndex] = d;
-      return { ...p, days };
+  function removeEntry(idx){
+    setTpl(prev => {
+      const days = [...prev.days];
+      const day = { ...days[dayIndex] };
+      const entries = [...day.entries];
+      entries.splice(idx,1);
+      day.entries = entries.map((e,i) => ({ ...e, orderIndex: i }));
+      days[dayIndex] = day;
+      return { ...prev, days };
     });
-  };
+  }
 
-  const updateEntry = (entryId, patch) => {
-    setPlan((p) => {
-      const days = [...p.days];
-      const d = { ...(days[dayIndex]) };
-      d.entries = (d.entries ?? []).map((r) =>
-        r.id === entryId ? { ...r, ...patch } : r
-      );
-      days[dayIndex] = d;
-      return { ...p, days };
+  function updateEntry(idx, patch){
+    setTpl(prev => {
+      const days = [...prev.days];
+      const day = { ...days[dayIndex] };
+      const entries = [...day.entries];
+      entries[idx] = { ...entries[idx], ...patch };
+      day.entries = entries;
+      days[dayIndex] = day;
+      return { ...prev, days };
     });
-  };
+  }
 
-  /** ====== Stub per cloud (mantieni i tuoi esistenti) ====== */
-  const saveToCloud = async () => {
-    // qui puoi richiamare supabase per salvare `plan`
-    // es.: await supabase.from('templates').upsert({ ... })
-    console.log("SALVA su cloud", plan);
-    alert("Mock: scheda salvata (vedi console).");
-  };
-  const duplicatePlan = () => {
-    setPlan((p) => ({
-      ...p,
-      id: null,
-      name: `${p.name || "Scheda"} (copia)`,
-    }));
-  };
-  const deletePlan = () => {
-    if (!confirm("Eliminare questa scheda?")) return;
-    setPlan({ id: null, name: "", days: [{ label: "Giorno 1", entries: [] }] });
-    setDayIndex(0);
-  };
+  // ====== handlers autocomplete ======
 
-  /** ====== JSX ====== */
+  function onInputKeyDown(e){
+    if (!openSug) return;
+    if (e.key === "ArrowDown"){
+      e.preventDefault();
+      setActiveIdx(i => Math.min(i + 1, sugs.length - 1));
+    } else if (e.key === "ArrowUp"){
+      e.preventDefault();
+      setActiveIdx(i => Math.max(i - 1, 0));
+    } else if (e.key === "Enter"){
+      e.preventDefault();
+      if (activeIdx >= 0 && sugs[activeIdx]){
+        selectSuggestion(sugs[activeIdx]);
+      } else if (sugs.length === 1){
+        selectSuggestion(sugs[0]);
+      }
+    } else if (e.key === "Escape"){
+      setOpenSug(false);
+    }
+  }
+
+  function selectSuggestion(name){
+    addExerciseByName(name);
+    setSearch("");
+    setSugs([]);
+    setOpenSug(false);
+    setActiveIdx(-1);
+    // focus prossimo campo sensato? lasciamo l’input pronto ad altra ricerca
+    inputRef.current?.focus();
+  }
+
+  // ======= UI =======
+
+  const day = tpl.days?.[dayIndex] ?? { entries: [] };
 
   return (
-    <div style={{ padding: 24 }}>
-      <h1 style={{ marginTop: 0 }}>Builder schede</h1>
-
-      {/* Header scheda */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 200px 200px auto",
-          gap: 12,
-          alignItems: "center",
-          marginBottom: 16,
-        }}
-      >
+    <div className="tpl-wrap">
+      <div className="tpl-header">
         <input
-          value={plan.name}
-          onChange={(e) =>
-            setPlan((p) => ({ ...p, name: e.target.value }))
-          }
+          className="inp name"
           placeholder="Nome scheda…"
-          style={{
-            padding: "12px 14px",
-            border: "1px solid #E5E7EB",
-            borderRadius: 10,
-            fontSize: 16,
-          }}
+          value={name}
+          onChange={e => setName(e.target.value)}
         />
-
-        <select
+        <select className="inp day"
           value={dayIndex}
-          onChange={(e) => setDayIndex(Number(e.target.value))}
-          style={{
-            padding: "10px 12px",
-            border: "1px solid #E5E7EB",
-            borderRadius: 10,
-          }}
+          onChange={e => setDayIndex(Number(e.target.value))}
         >
-          {Array.isArray(plan.days) &&
-            plan.days.map((d, i) => (
-              <option key={i} value={i}>
-                {d.label || `Giorno ${i + 1}`}
-              </option>
-            ))}
+          {tpl.days.map((_,i) => <option key={i} value={i}>Giorno {i+1}</option>)}
         </select>
+        <button className="btn" onClick={() => setTpl(p => ({...p, days:[...p.days, {entries: []}]}))}>+ Giorno</button>
+        <button className="btn" onClick={() => setTpl(p => ({...p, days: p.days.length>1 ? p.days.slice(0,-1) : p.days}))}>−</button>
+        <button className="btn primary" style={{marginLeft:"auto"}}>💾 Salva su cloud</button>
+      </div>
 
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={addDay}>+ Giorno</button>
-          <button onClick={removeDay} disabled={(plan.days?.length ?? 1) <= 1}>
-            −
-          </button>
+      <div className="tpl-toolbar">
+        {/* Ricerca con autocomplete */}
+        <div className="auto-wrap" ref={sugRef}>
+          <input
+            ref={inputRef}
+            className="inp search"
+            placeholder="Cerca esercizio…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            onFocus={() => { if (sugs.length) setOpenSug(true); }}
+            onKeyDown={onInputKeyDown}
+          />
+          {openSug && sugs.length > 0 && (
+            <ul role="listbox" className="auto-panel">
+              {sugs.map((s, i) => (
+                <li
+                  key={s}
+                  role="option"
+                  aria-selected={i===activeIdx}
+                  className={`auto-item ${i===activeIdx ? "active":""}`}
+                  onMouseDown={() => selectSuggestion(s)}
+                >
+                  {highlightMatch(s, search)}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
 
-        <div style={{ justifySelf: "end", display: "flex", gap: 8 }}>
-          <button onClick={duplicatePlan}>Duplica</button>
-          <button onClick={deletePlan}>Elimina</button>
-          <button
-            onClick={saveToCloud}
-            style={{
-              background:
-                "linear-gradient(135deg,#7066ff 0%, #6aa8ff 100%)",
-              color: "white",
-              border: "none",
-              padding: "10px 14px",
-              borderRadius: 10,
-            }}
-          >
-            💾 Salva su cloud
-          </button>
+        {/* Filtri per la select manuale */}
+        <select className="inp" value={groupFilter} onChange={e => setGroupFilter(e.target.value)}>
+          <option>Tutti i gruppi</option>
+          {["Petto","Schiena","Gambe","Spalle","Bicipiti","Tricipiti","Core","Altro"].map(g => <option key={g}>{g}</option>)}
+        </select>
+        <select className="inp" value={equipFilter} onChange={e => setEquipFilter(e.target.value)}>
+          <option>Tutti gli attrezzi</option>
+          {[...new Set(EXERCISE_LIBRARY.map(e=>e.equip))].sort().map(eq => <option key={eq}>{eq}</option>)}
+        </select>
+
+        {/* Select manuale “Elenco esercizi” (resta) */}
+        <select
+          className="inp"
+          onChange={e => { if (e.target.value) addExerciseByName(e.target.value); e.target.value=""; }}
+          defaultValue=""
+        >
+          <option value="" disabled>Elenco esercizi</option>
+          {selectOptions.map(n => <option key={n} value={n}>{n}</option>)}
+        </select>
+        <button className="btn" onClick={() => {/* add current selected? rimane come ora */}}>Aggiungi</button>
+
+        {/* Riepilogo a destra */}
+        <div style={{marginLeft:"auto", width: 320}}>
+          <SeriesSummary days={tpl.days} currentDayIndex={dayIndex}/>
         </div>
       </div>
 
-      {/* Layout 2 colonne */}
-      <div
-        className="tpl-layout"
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 320px",
-          gap: 24,
-          alignItems: "start",
-        }}
-      >
-        {/* ====== COLONNA SINISTRA: BUILDER ====== */}
-        <div>
-          {/* Barra filtri/ricerca */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 220px",
-              gap: 12,
-              marginBottom: 12,
-            }}
-          >
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Cerca esercizio…"
-              style={{
-                padding: "10px 12px",
-                border: "1px solid #E5E7EB",
-                borderRadius: 10,
-              }}
-            />
-            <select
-              onChange={(e) => {
-                const ex = filteredCatalog.find(
-                  (x) => x.id === e.target.value
-                );
-                if (ex) addExerciseToDay(ex);
-                // reset selezione per poter ri-selezionare lo stesso
-                e.target.value = "";
-              }}
-              defaultValue=""
-              style={{
-                padding: "10px 12px",
-                border: "1px solid #E5E7EB",
-                borderRadius: 10,
-              }}
-            >
-              <option value="" disabled>
-                Elenco esercizi
-              </option>
-              {filteredCatalog.map((ex) => (
-                <option key={ex.id} value={ex.id}>
-                  {ex.name}
-                </option>
-              ))}
-            </select>
-          </div>
+      <div className="tpl-list">
+        <h4>Esercizi — Giorno {dayIndex+1}</h4>
+        {day.entries.length === 0 && <div className="empty">Nessun esercizio in questo giorno.</div>}
 
-          {/* Lista esercizi del giorno */}
-          <section
-            style={{
-              background: "white",
-              border: "1px solid #EEF2F7",
-              borderRadius: 12,
-              padding: 12,
-            }}
-          >
-            <h3 style={{ marginTop: 0, fontSize: 14, color: "#475467" }}>
-              Esercizi — {currentDay?.label || `Giorno ${dayIndex + 1}`}
-            </h3>
+        {day.entries.map((row, idx) => (
+          <div key={row.id} className="ex-card">
+            <div className="ex-name">{row.exerciseName}</div>
 
-            {(!currentDay?.entries || currentDay.entries.length === 0) && (
-              <p style={{ color: "#667085" }}>
-                Nessun esercizio in questo giorno.
-              </p>
-            )}
-
-            <div style={{ display: "grid", gap: 12 }}>
-              {Array.isArray(currentDay?.entries) &&
-                currentDay.entries.map((row) => (
-                  <article
-                    key={row.id}
-                    style={{
-                      border: "1px solid #E5E7EB",
-                      borderRadius: 10,
-                      padding: 12,
-                    }}
-                  >
-                    {/* header / nome esercizio */}
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        marginBottom: 8,
-                      }}
-                    >
-                      <span
-                        style={{
-                          background: "#EEF2FF",
-                          color: "#3730A3",
-                          fontWeight: 600,
-                          padding: "4px 10px",
-                          borderRadius: 999,
-                          fontSize: 13,
-                        }}
-                      >
-                        {row.exerciseName}
-                      </span>
-
-                      <button
-                        onClick={() => removeExerciseFromDay(row.id)}
-                        style={{
-                          marginLeft: "auto",
-                          border: "1px solid #FEE2E2",
-                          color: "#B91C1C",
-                          background: "#FEF2F2",
-                          borderRadius: 8,
-                          padding: "6px 10px",
-                        }}
-                      >
-                        🗑︎
-                      </button>
-                    </div>
-
-                    {/* riga A: serie / ripetizioni */}
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(2, 160px)",
-                        gap: 12,
-                        marginBottom: 8,
-                      }}
-                    >
-                      <label style={{ display: "grid", gap: 6 }}>
-                        <span style={{ fontSize: 12, color: "#6B7280" }}>
-                          Serie
-                        </span>
-                        <input
-                          type="number"
-                          min={1}
-                          value={row.sets ?? 0}
-                          onChange={(e) =>
-                            updateEntry(row.id, {
-                              sets: Number(e.target.value || 0),
-                            })
-                          }
-                          style={inpStyle}
-                        />
-                      </label>
-
-                      <label style={{ display: "grid", gap: 6 }}>
-                        <span style={{ fontSize: 12, color: "#6B7280" }}>
-                          Ripetizioni
-                        </span>
-                        <input
-                          type="number"
-                          min={1}
-                          value={row.reps ?? 0}
-                          onChange={(e) =>
-                            updateEntry(row.id, {
-                              reps: Number(e.target.value || 0),
-                            })
-                          }
-                          style={inpStyle}
-                        />
-                      </label>
-                    </div>
-
-                    {/* riga B: kg / note (opz) */}
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "160px 1fr",
-                        gap: 12,
-                      }}
-                    >
-                      <label style={{ display: "grid", gap: 6 }}>
-                        <span style={{ fontSize: 12, color: "#6B7280" }}>
-                          Kg (opz.)
-                        </span>
-                        <input
-                          type="number"
-                          value={row.weight_kg ?? ""}
-                          onChange={(e) =>
-                            updateEntry(row.id, {
-                              weight_kg:
-                                e.target.value === ""
-                                  ? null
-                                  : Number(e.target.value),
-                            })
-                          }
-                          style={inpStyle}
-                        />
-                      </label>
-
-                      <label style={{ display: "grid", gap: 6 }}>
-                        <span style={{ fontSize: 12, color: "#6B7280" }}>
-                          Note (opz.)
-                        </span>
-                        <input
-                          type="text"
-                          value={row.notes ?? ""}
-                          onChange={(e) =>
-                            updateEntry(row.id, { notes: e.target.value })
-                          }
-                          placeholder="Aggiungi una nota"
-                          style={inpStyle}
-                        />
-                      </label>
-                    </div>
-                  </article>
-                ))}
+            <div className="row">
+              <div className="col">
+                <label>Serie</label>
+                <input
+                  type="number"
+                  min={1}
+                  className="inp"
+                  value={row.sets ?? 3}
+                  onChange={e => updateEntry(idx, { sets: Number(e.target.value) || 1 })}
+                />
+              </div>
+              <div className="col">
+                <label>Ripetizioni</label>
+                <input
+                  type="number"
+                  min={1}
+                  className="inp"
+                  value={row.reps ?? 10}
+                  onChange={e => updateEntry(idx, { reps: Number(e.target.value) || 1 })}
+                />
+              </div>
             </div>
-          </section>
-        </div>
 
-        {/* ====== COLONNA DESTRA: RIEPILOGO ====== */}
-        <SeriesSummary plan={plan} />
+            <div className="row">
+              <div className="col">
+                <label>Kg (opz.)</label>
+                <input
+                  type="number"
+                  className="inp"
+                  value={row.weight_kg ?? ""}
+                  onChange={e => updateEntry(idx, { weight_kg: e.target.value === "" ? null : Number(e.target.value) })}
+                />
+              </div>
+              <div className="col2">
+                <label>Note (opzionali)</label>
+                <input
+                  className="inp"
+                  placeholder="Aggiungi una nota"
+                  value={row.notes ?? ""}
+                  onChange={e => updateEntry(idx, { notes: e.target.value })}
+                />
+              </div>
+              <button className="icon trash" title="Rimuovi" onClick={() => removeEntry(idx)}>🗑️</button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-/** stile input riutilizzabile */
-const inpStyle = {
-  padding: "10px 12px",
-  border: "1px solid #E5E7EB",
-  borderRadius: 10,
-  outline: "none",
-};
+// evidenzia il match nella stringa suggerita
+function highlightMatch(label, query){
+  const q = query.trim();
+  if (!q) return label;
+  const i = label.toLowerCase().indexOf(q.toLowerCase());
+  if (i < 0) return label;
+  const a = label.slice(0,i);
+  const b = label.slice(i, i+q.length);
+  const c = label.slice(i+q.length);
+  return <span>{a}<strong>{b}</strong>{c}</span>;
+}
