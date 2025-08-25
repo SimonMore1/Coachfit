@@ -1,8 +1,8 @@
 // src/data.js
-// Data layer unico: espone le stesse API sia in locale che su Supabase.
-// Se hasCloud() è true usa il DB, altrimenti salva in localStorage.
-
 import { supabase, hasCloud } from "./lib/supabase";
+
+// Re-export: espone da data.js le costanti che vivono in utils.js
+export { EXERCISE_LIBRARY, EXERCISE_CATALOG, detectGroup, MUSCLE_GROUPS } from "./utils.js";
 
 // ------- Helpers locali (fallback) -------
 const LS_KEYS = {
