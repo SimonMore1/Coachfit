@@ -1,447 +1,440 @@
-// === START: src/pages/TemplateBuilder.jsx ===
-import { useEffect, useMemo, useRef, useState } from "react";
-import { EXERCISE_LIBRARY, MUSCLE_GROUPS, capWords } from "../utils";
+// src/pages/TemplateBuilder.jsx
+import React, { useMemo, useState } from "react";
+import SeriesSummary from "../components/SeriesSummary.jsx";
 
-/**
- * Props attese:
- * - user                       { id, name, role }
- * - templates                  [{ id, name, days:[{id,name,entries:[]}] }]
- * - saveTemplate               (tpl) => Promise<savedTpl>
- * - deleteTemplate             (tplId) => Promise<boolean>
- */
+/** ========== UTIL ========== */
 
-function newTemplate() {
-  return {
-    id: undefined, // nuovo finché non salvi su cloud (verrà assegnato)
+// enumerazione sicura (evita `.entries is not iterable`)
+function* enumerate(arr = []) {
+  if (!Array.isArray(arr)) return;
+  for (let i = 0; i < arr.length; i++) yield [i, arr[i]];
+}
+
+// piccolo catalogo di esempio (se nel tuo progetto esiste già, puoi ignorarlo)
+const CATALOG = [
+  { id: "panca-piana", name: "Panca Piana", muscleGroup: "Petto" },
+  { id: "dip", name: "Dip alle Parallele", muscleGroup: "Tricipiti" },
+  { id: "lat", name: "Lat Machine", muscleGroup: "Schiena" },
+  { id: "squat", name: "Squat", muscleGroup: "Gambe" },
+];
+
+/** ========== BUILDER PAGE ========== */
+
+export default function TemplateBuilder() {
+  // stato della scheda (plan)
+  const [plan, setPlan] = useState(() => ({
+    id: null,
     name: "",
     days: [
-      { id: crypto.randomUUID(), name: "Giorno 1", entries: [] },
-      { id: crypto.randomUUID(), name: "Giorno 2", entries: [] },
+      // giorno 1 iniziale
+      { label: "Giorno 1", entries: [] },
     ],
+  }));
+
+  // selezione giorno corrente
+  const [dayIndex, setDayIndex] = useState(0);
+
+  // filtri & ricerca per l’elenco esercizi
+  const [query, setQuery] = useState("");
+  const filteredCatalog = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return CATALOG;
+    return CATALOG.filter((e) =>
+      e.name.toLowerCase().includes(q)
+    );
+  }, [query]);
+
+  const currentDay = plan.days?.[dayIndex];
+
+  /** ===== Handlers di base ===== */
+
+  const addDay = () => {
+    setPlan((p) => ({
+      ...p,
+      days: [
+        ...p.days,
+        { label: `Giorno ${p.days.length + 1}`, entries: [] },
+      ],
+    }));
+    setDayIndex(plan.days.length); // seleziona il nuovo giorno
   };
-}
 
-function makeEntryFromExercise(ex, orderIndex = 0) {
-  // entry “snellita”: include già sets/reps che la pagina Allenamenti leggerà
-  return {
-    exerciseId: ex.id || null,
-    exerciseName: ex.name,
-    muscleGroup: ex.muscle || null,
-    equipment: ex.equip || null,
-
-    // campi chiave per Allenamenti
-    sets: 3,      // default: modificabile nella riga
-    reps: 10,     // default: modificabile nella riga
-
-    // opzionali
-    weight_kg: null,
-    notes: null,
-
-    orderIndex
+  const removeDay = () => {
+    setPlan((p) => {
+      if (p.days.length <= 1) return p;
+      const copy = [...p.days];
+      copy.splice(dayIndex, 1);
+      return { ...p, days: copy };
+    });
+    setDayIndex((i) => Math.max(0, i - 1));
   };
-}
 
-export default function TemplateBuilder({ user, templates, saveTemplate, deleteTemplate }) {
-  // selezione scheda a sinistra
-  const [activeId, setActiveId] = useState(templates[0]?.id ?? null);
-  const active = useMemo(() => templates.find(t => t.id === activeId) || null, [templates, activeId]);
+  const addExerciseToDay = (ex) => {
+    setPlan((p) => {
+      const days = [...p.days];
+      const d = { ...(days[dayIndex]) };
+      const entries = [...(d.entries ?? [])];
 
-  // bozza in modifica
-  const [draft, setDraft] = useState(active ?? null);
-  const [dayIdx, setDayIdx] = useState(0);
+      entries.push({
+        id: `${ex.id}-${Date.now()}`,
+        exerciseId: ex.id,
+        exerciseName: ex.name,
+        muscleGroup: ex.muscleGroup || "Altro",
+        sets: 3,
+        reps: 10,
+        weight_kg: null,
+        notes: "",
+      });
 
-  // selezione da libreria
-  const [q, setQ] = useState("");
-  const [fGroup, setFGroup] = useState("");
-  const [fEquip, setFEquip] = useState("");
-  const [selectedId, setSelectedId] = useState("");
-
-  // focus sul nome scheda quando ne crei una nuova
-  const nameRef = useRef(null);
-  useEffect(() => {
-    if (draft && draft.id === undefined && nameRef.current) {
-      nameRef.current.focus();
-    }
-  }, [draft?.id]);
-
-  // quando cambi scheda
-  useEffect(() => {
-    if (active) {
-      setDraft(structuredClone(active));
-      setDayIdx(0);
-    } else {
-      setDraft(null);
-      setDayIdx(0);
-    }
-  }, [activeId]); // eslint-disable-line
-
-  const groups  = MUSCLE_GROUPS;
-  const equips  = useMemo(() => [...new Set(EXERCISE_LIBRARY.map(e => e.equip))], []);
-  const lib = useMemo(() => {
-    const query = (q || "").toLowerCase();
-    return EXERCISE_LIBRARY.filter(e => {
-      if (query && !e.name.toLowerCase().includes(query)) return false;
-      if (fGroup && e.muscle !== fGroup) return false;
-      if (fEquip && e.equip !== fEquip) return false;
-      return true;
+      d.entries = entries;
+      days[dayIndex] = d;
+      return { ...p, days };
     });
-  }, [q, fGroup, fEquip]);
+  };
 
-  function selectTemplate(t) {
-    setActiveId(t?.id ?? null);
-  }
-
-  function addTemplate() {
-    setActiveId(undefined);
-    setDraft(newTemplate());
-    setDayIdx(0);
-    setSelectedId("");
-    setQ("");
-  }
-
-  function updateDraft(patch) {
-    setDraft(prev => ({ ...prev, ...patch }));
-  }
-
-  function updateDayName(i, name) {
-    const days = draft.days.map((d, idx) => idx === i ? { ...d, name } : d);
-    updateDraft({ days });
-  }
-
-  function addDay() {
-    const days = [
-      ...draft.days,
-      { id: crypto.randomUUID(), name: `Giorno ${draft.days.length + 1}`, entries: [] }
-    ];
-    updateDraft({ days });
-    setDayIdx(days.length - 1);
-  }
-
-  function removeDay() {
-    if (!draft || draft.days.length <= 1) return;
-    const days = draft.days.toSpliced(dayIdx, 1);
-    updateDraft({ days });
-    setDayIdx(Math.max(0, dayIdx - 1));
-  }
-
-  function addSelectedExercise() {
-    if (!selectedId) return;
-    const ex = EXERCISE_LIBRARY.find(e => e.id === selectedId);
-    if (!ex) return;
-    const curr = draft.days[dayIdx];
-    const orderIndex = curr.entries.length;
-    const entry = makeEntryFromExercise(ex, orderIndex);
-    const days = draft.days.map((d, idx) => {
-      if (idx !== dayIdx) return d;
-      return { ...d, entries: [...d.entries, entry] };
+  const removeExerciseFromDay = (entryId) => {
+    setPlan((p) => {
+      const days = [...p.days];
+      const d = { ...(days[dayIndex]) };
+      d.entries = (d.entries ?? []).filter((r) => r.id !== entryId);
+      days[dayIndex] = d;
+      return { ...p, days };
     });
-    updateDraft({ days });
-    setSelectedId("");
-    // dopo aver aggiunto, focus su Serie della riga appena creata? (lo lasciamo opzionale)
-  }
+  };
 
-  function updateEntry(i, patch) {
-    const days = draft.days.map((d, idx) => {
-      if (idx !== dayIdx) return d;
-      const next = d.entries.map((en, ii) => ii === i ? { ...en, ...patch } : en);
-      return { ...d, entries: next };
+  const updateEntry = (entryId, patch) => {
+    setPlan((p) => {
+      const days = [...p.days];
+      const d = { ...(days[dayIndex]) };
+      d.entries = (d.entries ?? []).map((r) =>
+        r.id === entryId ? { ...r, ...patch } : r
+      );
+      days[dayIndex] = d;
+      return { ...p, days };
     });
-    updateDraft({ days });
-  }
+  };
 
-  function removeEntry(i) {
-    const days = draft.days.map((d, idx) => {
-      if (idx !== dayIdx) return d;
-      const next = d.entries.toSpliced(i, 1).map((en, ii) => ({ ...en, orderIndex: ii }));
-      return { ...d, entries: next };
-    });
-    updateDraft({ days });
-  }
+  /** ====== Stub per cloud (mantieni i tuoi esistenti) ====== */
+  const saveToCloud = async () => {
+    // qui puoi richiamare supabase per salvare `plan`
+    // es.: await supabase.from('templates').upsert({ ... })
+    console.log("SALVA su cloud", plan);
+    alert("Mock: scheda salvata (vedi console).");
+  };
+  const duplicatePlan = () => {
+    setPlan((p) => ({
+      ...p,
+      id: null,
+      name: `${p.name || "Scheda"} (copia)`,
+    }));
+  };
+  const deletePlan = () => {
+    if (!confirm("Eliminare questa scheda?")) return;
+    setPlan({ id: null, name: "", days: [{ label: "Giorno 1", entries: [] }] });
+    setDayIndex(0);
+  };
 
-  async function handleSave() {
-    // fallback: se nome vuoto, salviamo con un default (come richiesto)
-    const nameToSave = draft.name?.trim() || "Scheda senza titolo";
-    const saved = await saveTemplate({
-      id: draft.id,
-      name: nameToSave,
-      days: draft.days
-    });
-    if (saved) {
-      // risincronizza lista/bozza
-      setActiveId(saved.id);
-      setDraft(structuredClone(saved));
-      alert("Scheda salvata nel cloud ✅");
-    } else {
-      alert("Errore nel salvataggio.");
-    }
-  }
-
-  async function handleDelete(id) {
-    if (!id) {
-      // bozza non salvata
-      setDraft(null);
-      setActiveId(templates[0]?.id ?? null);
-      return;
-    }
-    const ok = await deleteTemplate(id);
-    if (ok) {
-      setDraft(null);
-      setActiveId(templates[0]?.id ?? null);
-    }
-  }
-
-  // riepilogo serie per gruppo (live)
-  const seriesByGroup = useMemo(() => {
-    if (!draft) return {};
-    const acc = {};
-    for (const d of draft.days) {
-      for (const en of d.entries) {
-        const g = en.muscleGroup || "Altro";
-        const s = Number(en.sets) || 0;
-        acc[g] = (acc[g] || 0) + s;
-      }
-    }
-    return acc;
-  }, [draft]);
-
-  const seriesTotal = useMemo(
-    () => Object.values(seriesByGroup).reduce((s, n) => s + n, 0),
-    [seriesByGroup]
-  );
+  /** ====== JSX ====== */
 
   return (
-    <div className="app-main">
-      <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", margin:"6px 0 14px"}}>
-        <h2 className="font-semibold" style={{fontSize:24, margin:0}}>
-          Schede — <span className="font-medium">{user?.name}</span>
-        </h2>
-        <div className="muted">Costruisci e salva le tue schede nel cloud</div>
+    <div style={{ padding: 24 }}>
+      <h1 style={{ marginTop: 0 }}>Builder schede</h1>
+
+      {/* Header scheda */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 200px 200px auto",
+          gap: 12,
+          alignItems: "center",
+          marginBottom: 16,
+        }}
+      >
+        <input
+          value={plan.name}
+          onChange={(e) =>
+            setPlan((p) => ({ ...p, name: e.target.value }))
+          }
+          placeholder="Nome scheda…"
+          style={{
+            padding: "12px 14px",
+            border: "1px solid #E5E7EB",
+            borderRadius: 10,
+            fontSize: 16,
+          }}
+        />
+
+        <select
+          value={dayIndex}
+          onChange={(e) => setDayIndex(Number(e.target.value))}
+          style={{
+            padding: "10px 12px",
+            border: "1px solid #E5E7EB",
+            borderRadius: 10,
+          }}
+        >
+          {Array.isArray(plan.days) &&
+            plan.days.map((d, i) => (
+              <option key={i} value={i}>
+                {d.label || `Giorno ${i + 1}`}
+              </option>
+            ))}
+        </select>
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={addDay}>+ Giorno</button>
+          <button onClick={removeDay} disabled={(plan.days?.length ?? 1) <= 1}>
+            −
+          </button>
+        </div>
+
+        <div style={{ justifySelf: "end", display: "flex", gap: 8 }}>
+          <button onClick={duplicatePlan}>Duplica</button>
+          <button onClick={deletePlan}>Elimina</button>
+          <button
+            onClick={saveToCloud}
+            style={{
+              background:
+                "linear-gradient(135deg,#7066ff 0%, #6aa8ff 100%)",
+              color: "white",
+              border: "none",
+              padding: "10px 14px",
+              borderRadius: 10,
+            }}
+          >
+            💾 Salva su cloud
+          </button>
+        </div>
       </div>
 
-      <div className="tpl-grid" style={{gridTemplateColumns: "320px 1fr 260px"}}>
-        {/* SINISTRA: lista schede */}
-        <div className="card">
-          <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8}}>
-            <div className="font-semibold">Le mie schede</div>
-            <button className="btn btn-primary" onClick={addTemplate}>+ Nuova</button>
+      {/* Layout 2 colonne */}
+      <div
+        className="tpl-layout"
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 320px",
+          gap: 24,
+          alignItems: "start",
+        }}
+      >
+        {/* ====== COLONNA SINISTRA: BUILDER ====== */}
+        <div>
+          {/* Barra filtri/ricerca */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 220px",
+              gap: 12,
+              marginBottom: 12,
+            }}
+          >
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Cerca esercizio…"
+              style={{
+                padding: "10px 12px",
+                border: "1px solid #E5E7EB",
+                borderRadius: 10,
+              }}
+            />
+            <select
+              onChange={(e) => {
+                const ex = filteredCatalog.find(
+                  (x) => x.id === e.target.value
+                );
+                if (ex) addExerciseToDay(ex);
+                // reset selezione per poter ri-selezionare lo stesso
+                e.target.value = "";
+              }}
+              defaultValue=""
+              style={{
+                padding: "10px 12px",
+                border: "1px solid #E5E7EB",
+                borderRadius: 10,
+              }}
+            >
+              <option value="" disabled>
+                Elenco esercizi
+              </option>
+              {filteredCatalog.map((ex) => (
+                <option key={ex.id} value={ex.id}>
+                  {ex.name}
+                </option>
+              ))}
+            </select>
           </div>
 
-          <div className="tpl-list">
-            {templates.length === 0 && <div className="muted">Nessuna scheda salvata.</div>}
-            {templates.map(t => {
-              const activeCls = t.id === activeId ? "tpl-item active" : "tpl-item";
-              const daysCount = t.days.length;
-              const exCount = t.days.reduce((s, d) => s + (d.entries?.length || 0), 0);
-              return (
-                <div key={t.id} className={activeCls} onClick={() => selectTemplate(t)}>
-                  <div className="tpl-title">{t.name || "Scheda senza titolo"}</div>
-                  <div className="muted">{daysCount} giorni — {exCount} esercizi</div>
-                  <div className="tpl-actions">
-                    <button
-                      className="btn-ghost"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const copy = structuredClone(t);
-                        copy.id = undefined;
-                        copy.name = (t.name || "Scheda") + " (copia)";
-                        setActiveId(undefined);
-                        setDraft(copy);
-                        setDayIdx(0);
+          {/* Lista esercizi del giorno */}
+          <section
+            style={{
+              background: "white",
+              border: "1px solid #EEF2F7",
+              borderRadius: 12,
+              padding: 12,
+            }}
+          >
+            <h3 style={{ marginTop: 0, fontSize: 14, color: "#475467" }}>
+              Esercizi — {currentDay?.label || `Giorno ${dayIndex + 1}`}
+            </h3>
+
+            {(!currentDay?.entries || currentDay.entries.length === 0) && (
+              <p style={{ color: "#667085" }}>
+                Nessun esercizio in questo giorno.
+              </p>
+            )}
+
+            <div style={{ display: "grid", gap: 12 }}>
+              {Array.isArray(currentDay?.entries) &&
+                currentDay.entries.map((row) => (
+                  <article
+                    key={row.id}
+                    style={{
+                      border: "1px solid #E5E7EB",
+                      borderRadius: 10,
+                      padding: 12,
+                    }}
+                  >
+                    {/* header / nome esercizio */}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        marginBottom: 8,
                       }}
                     >
-                      Duplica
-                    </button>
-                    <button
-                      className="btn-ghost"
-                      onClick={(e) => { e.stopPropagation(); handleDelete(t.id); }}
+                      <span
+                        style={{
+                          background: "#EEF2FF",
+                          color: "#3730A3",
+                          fontWeight: 600,
+                          padding: "4px 10px",
+                          borderRadius: 999,
+                          fontSize: 13,
+                        }}
+                      >
+                        {row.exerciseName}
+                      </span>
+
+                      <button
+                        onClick={() => removeExerciseFromDay(row.id)}
+                        style={{
+                          marginLeft: "auto",
+                          border: "1px solid #FEE2E2",
+                          color: "#B91C1C",
+                          background: "#FEF2F2",
+                          borderRadius: 8,
+                          padding: "6px 10px",
+                        }}
+                      >
+                        🗑︎
+                      </button>
+                    </div>
+
+                    {/* riga A: serie / ripetizioni */}
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(2, 160px)",
+                        gap: 12,
+                        marginBottom: 8,
+                      }}
                     >
-                      Elimina
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span style={{ fontSize: 12, color: "#6B7280" }}>
+                          Serie
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={row.sets ?? 0}
+                          onChange={(e) =>
+                            updateEntry(row.id, {
+                              sets: Number(e.target.value || 0),
+                            })
+                          }
+                          style={inpStyle}
+                        />
+                      </label>
 
-        {/* CENTRO: editor */}
-        <div className="card">
-          {!draft ? (
-            <div className="muted">Seleziona o crea una scheda per modificarla.</div>
-          ) : (
-            <>
-              {/* Header editor */}
-              <div className="grid" style={{gridTemplateColumns:"1.4fr .9fr auto auto auto", gap:8}}>
-                <input
-                  ref={nameRef}
-                  className="input"
-                  value={draft.name}
-                  onChange={e => updateDraft({ name: capWords(e.target.value) })}
-                  placeholder="Nome scheda…"
-                />
-
-                <select
-                  className="input"
-                  value={dayIdx}
-                  onChange={e => setDayIdx(Number(e.target.value))}
-                >
-                  {draft.days.map((d, idx) => (
-                    <option key={d.id} value={idx}>
-                      {d.name || `Giorno ${idx + 1}`}
-                    </option>
-                  ))}
-                </select>
-
-                <button className="btn" onClick={addDay}>+ Giorno</button>
-                <button className="btn" onClick={removeDay}>−</button>
-                <button className="btn btn-primary" onClick={handleSave}>💾 Salva su cloud</button>
-              </div>
-
-              {/* Rename giorno */}
-              <div className="mt-3" style={{display:"flex", gap:8, alignItems:"center"}}>
-                <span className="label">Rinomina giorno selezionato:</span>
-                <input
-                  className="input"
-                  value={draft.days[dayIdx]?.name || ""}
-                  onChange={e => updateDayName(dayIdx, capWords(e.target.value))}
-                  placeholder="Es. Spinta, Tirata, Gambe…"
-                />
-              </div>
-
-              <hr style={{border:"none", borderTop:"1px dashed #e2e8f0", margin:"12px 0"}}/>
-
-              {/* Barra inserimento */}
-              <div className="grid" style={{gridTemplateColumns:"1fr .8fr .8fr 1fr auto", gap:8}}>
-                <input
-                  className="input"
-                  placeholder="Cerca esercizio…"
-                  value={q}
-                  onChange={e => setQ(e.target.value)}
-                />
-
-                <select className="input" value={fGroup} onChange={e => setFGroup(e.target.value)}>
-                  <option value="">Tutti i gruppi</option>
-                  {groups.map(g => <option key={g} value={g}>{g}</option>)}
-                </select>
-
-                <select className="input" value={fEquip} onChange={e => setFEquip(e.target.value)}>
-                  <option value="">Tutti gli attrezzi</option>
-                  {equips.map(g => <option key={g} value={g}>{g}</option>)}
-                </select>
-
-                <select
-                  className="input"
-                  value={selectedId}
-                  onChange={e => setSelectedId(e.target.value)}
-                >
-                  <option value="">Elenco esercizi</option>
-                  {lib.map(ex => (
-                    <option key={ex.id} value={ex.id}>{ex.name}</option>
-                  ))}
-                </select>
-
-                <button className="btn btn-primary" onClick={addSelectedExercise} disabled={!selectedId}>
-                  Aggiungi
-                </button>
-              </div>
-
-              {/* Elenco esercizi del giorno (card semplificata) */}
-              <ul className="ex-list">
-                {draft.days[dayIdx]?.entries?.map((en, i) => (
-                  <li key={i} className="card" style={{padding:"10px 10px"}}>
-                    {/* Header: nome esercizio */}
-                    <div className="chip" style={{marginBottom:8}}>
-                      {en.exerciseName || "Esercizio"}
-                      {en.muscleGroup ? <span className="chip muted">{en.muscleGroup}</span> : null}
-                      {en.equipment ? <span className="chip muted">{en.equipment}</span> : null}
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span style={{ fontSize: 12, color: "#6B7280" }}>
+                          Ripetizioni
+                        </span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={row.reps ?? 0}
+                          onChange={(e) =>
+                            updateEntry(row.id, {
+                              reps: Number(e.target.value || 0),
+                            })
+                          }
+                          style={inpStyle}
+                        />
+                      </label>
                     </div>
 
-                    {/* Row A: Serie / Reps */}
-                    <div className="grid" style={{gridTemplateColumns:"repeat(4, minmax(0, 1fr))", gap:8}}>
-                      <div>
-                        <div className="label">Serie</div>
+                    {/* riga B: kg / note (opz) */}
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "160px 1fr",
+                        gap: 12,
+                      }}
+                    >
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span style={{ fontSize: 12, color: "#6B7280" }}>
+                          Kg (opz.)
+                        </span>
                         <input
-                          className="input"
                           type="number"
-                          value={en.sets ?? 3}
-                          onChange={e => updateEntry(i, { sets: Number(e.target.value) || 0 })}
-                          placeholder="3"
-                          min={0}
+                          value={row.weight_kg ?? ""}
+                          onChange={(e) =>
+                            updateEntry(row.id, {
+                              weight_kg:
+                                e.target.value === ""
+                                  ? null
+                                  : Number(e.target.value),
+                            })
+                          }
+                          style={inpStyle}
                         />
-                      </div>
-                      <div>
-                        <div className="label">Ripetizioni</div>
+                      </label>
+
+                      <label style={{ display: "grid", gap: 6 }}>
+                        <span style={{ fontSize: 12, color: "#6B7280" }}>
+                          Note (opz.)
+                        </span>
                         <input
-                          className="input"
-                          type="number"
-                          value={en.reps ?? 10}
-                          onChange={e => updateEntry(i, { reps: Number(e.target.value) || 0 })}
-                          placeholder="10"
-                          min={0}
-                        />
-                      </div>
-                      <div>
-                        <div className="label">Kg (opz.)</div>
-                        <input
-                          className="input"
-                          type="number"
-                          value={en.weight_kg ?? ""}
-                          onChange={e => {
-                            const raw = e.target.value;
-                            updateEntry(i, { weight_kg: raw === "" ? null : Number(raw) });
-                          }}
-                          placeholder="es. 20"
-                          min={0}
-                        />
-                      </div>
-                      <div>
-                        <div className="label">Note (opz.)</div>
-                        <input
-                          className="input"
                           type="text"
-                          value={en.notes ?? ""}
-                          onChange={e => updateEntry(i, { notes: e.target.value })}
-                          placeholder="Tempi, tecnica, RIR…"
+                          value={row.notes ?? ""}
+                          onChange={(e) =>
+                            updateEntry(row.id, { notes: e.target.value })
+                          }
+                          placeholder="Aggiungi una nota"
+                          style={inpStyle}
                         />
-                      </div>
+                      </label>
                     </div>
-
-                    {/* Azioni */}
-                    <div style={{display:"flex", justifyContent:"flex-end", marginTop:8}}>
-                      <button className="btn" onClick={() => removeEntry(i)}>🗑️</button>
-                    </div>
-                  </li>
+                  </article>
                 ))}
-                {(!draft.days[dayIdx]?.entries || draft.days[dayIdx].entries.length === 0) && (
-                  <div className="muted">Nessun esercizio in questo giorno.</div>
-                )}
-              </ul>
-            </>
-          )}
+            </div>
+          </section>
         </div>
 
-        {/* DESTRA: riepilogo serie per gruppo */}
-        <div className="card">
-          <div className="font-semibold" style={{marginBottom:8}}>Riepilogo serie per gruppo</div>
-          {Object.keys(seriesByGroup).length === 0 && <div className="muted">Nessun dato.</div>}
-          <div style={{display:"flex", flexDirection:"column", gap:6}}>
-            {Object.entries(seriesByGroup)
-              .sort((a,b) => a[0].localeCompare(b[0], "it"))
-              .map(([group, count]) => (
-                <div key={group} style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
-                  <span>{group}</span>
-                  <span className="pill"><strong>{count}</strong> serie</span>
-                </div>
-              ))}
-          </div>
-          <hr style={{border:"none", borderTop:"1px dashed #e2e8f0", margin:"12px 0"}}/>
-          <div style={{display:"flex", justifyContent:"space-between"}}>
-            <span className="font-semibold">Totale serie</span>
-            <span className="pill"><strong>{seriesTotal}</strong></span>
-          </div>
-        </div>
+        {/* ====== COLONNA DESTRA: RIEPILOGO ====== */}
+        <SeriesSummary plan={plan} />
       </div>
     </div>
   );
 }
-// === END: src/pages/TemplateBuilder.jsx ===
+
+/** stile input riutilizzabile */
+const inpStyle = {
+  padding: "10px 12px",
+  border: "1px solid #E5E7EB",
+  borderRadius: 10,
+  outline: "none",
+};
