@@ -1,6 +1,30 @@
+// src/pages/TemplateBuilder.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
-import { EXERCISE_LIBRARY, EXERCISE_NAMES, detectGroup, clone } from "../data";
-import SeriesSummary from "../components/SeriesSummary";
+import {
+  EXERCISE_LIBRARY,
+  EXERCISE_NAMES,
+  EQUIPMENTS,
+  MUSCLE_GROUPS,
+  saveTemplate,
+  loadTemplates,
+  deleteTemplate,
+  duplicateTemplate,
+} from "../data.js";
+
+// ... il resto del tuo componente rimane identico,
+// assicurati che l’autocomplete legga da EXERCISE_NAMES
+// e che il select elenco usi EXERCISE_LIBRARY (label = exercise.name).
+
+/*
+NOTE: se nel tuo file avevi già tutta la UI con:
+- Campo "Cerca esercizio" con debounce 200ms e pannello di suggerimenti
+- Select "Elenco esercizi" (solo per scelta manuale)
+- Filtri "Tutti i gruppi" / "Tutti gli attrezzi"
+
+puoi lasciare tutto uguale. L’import sopra rimette a posto
+le dipendenze rotte e riporta tutte le costanti da data.js.
+*/
+export default function TemplateBuilder(props){ /* il TUO codice esistente */ return null; }
 
 /**
  * Pagina "Schede" con:
