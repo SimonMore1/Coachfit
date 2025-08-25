@@ -1,21 +1,25 @@
 // src/data.js
-// Espone le stesse API sia in locale che su Supabase.
-// In più riesporta le costanti dal catalogo (utils.js) così i componenti importano tutto da qui.
+// Layer dati unico: usa Supabase se disponibile, altrimenti localStorage.
+// Inoltre riesporta tutte le costanti/utility della libreria esercizi e dei DEMO,
+// così tutti i file possono importare SOLO da "./data.js".
 
 import { supabase, hasCloud } from "./lib/supabase";
 
-// Re-export: TUTTO ciò che i componenti si aspettano dal vecchio data.js
+// 🔁 RIESPORTI UNIFICATI (così non servono più import da ./utils.js)
 export {
+  // libreria esercizi / filtri / utilità
   EXERCISE_LIBRARY,
   EXERCISE_CATALOG,
   EXERCISE_NAMES,
   EQUIPMENTS,
   MUSCLE_GROUPS,
   detectGroup,
-  capWords
+  // dati demo (PT + utenti) — necessari a App.jsx
+  DEMO_USERS,
+  DEMO_PATIENTS,
 } from "./utils.js";
 
-// ------- Helpers locali (fallback) -------
+// ---------------- Helpers locali (fallback) ----------------
 const LS_KEYS = {
   templates: "cf_templates_v1",
   active: "cf_active_plan_v1",
@@ -23,24 +27,37 @@ const LS_KEYS = {
 };
 
 const readLS = (k, def) => {
-  try { return JSON.parse(localStorage.getItem(k)) ?? def; }
-  catch { return def; }
+  try {
+    return JSON.parse(localStorage.getItem(k)) ?? def;
+  } catch {
+    return def;
+  }
 };
-const writeLS = (k, v) => localStorage.setItem(k, JSON.stringify(v));
-const uid = () => crypto.randomUUID?.() || String(Date.now()) + Math.random().toString(16).slice(2);
 
-// Normalizza record template
+const writeLS = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+
+const uid = () =>
+  (crypto.randomUUID?.() ||
+    String(Date.now()) + Math.random().toString(16).slice(2));
+
+// Normalizza record template dal DB
 const normTpl = (row) => ({
   id: row.id,
   owner_id: row.owner_id,
   name: row.name,
   days: Array.isArray(row.days)
     ? row.days
-    : (() => { try { return JSON.parse(row.days || "[]"); } catch { return []; } })(),
+    : (() => {
+        try {
+          return JSON.parse(row.days || "[]");
+        } catch {
+          return [];
+        }
+      })(),
   updated_at: row.updated_at || null,
 });
 
-// ======= TEMPLATES =======
+// ================= TEMPLATES =================
 
 export async function loadTemplates(ownerId) {
   if (hasCloud()) {
@@ -52,15 +69,17 @@ export async function loadTemplates(ownerId) {
     if (error) throw error;
     return (data || []).map(normTpl);
   }
+  // locale
   const all = readLS(LS_KEYS.templates, []);
-  return all.filter(t => t.owner_id === ownerId);
+  return all.filter((t) => t.owner_id === ownerId);
 }
 
 export async function saveTemplate(ownerId, tpl) {
+  // tpl: {id?, name, days:[...]}
   const payload = {
     id: tpl.id || undefined,
     owner_id: ownerId,
-    name: (tpl.name ?? "").trim() || "Nuova scheda",
+    name: tpl.name?.trim() || "Nuova scheda",
     days: Array.isArray(tpl.days) ? tpl.days : [],
   };
 
@@ -77,7 +96,13 @@ export async function saveTemplate(ownerId, tpl) {
     } else {
       const { data, error } = await supabase
         .from("templates")
-        .insert([{ owner_id: payload.owner_id, name: payload.name, days: payload.days }])
+        .insert([
+          {
+            owner_id: payload.owner_id,
+            name: payload.name,
+            days: payload.days,
+          },
+        ])
         .select()
         .single();
       if (error) throw error;
@@ -88,14 +113,14 @@ export async function saveTemplate(ownerId, tpl) {
   // locale
   const all = readLS(LS_KEYS.templates, []);
   if (payload.id) {
-    const i = all.findIndex(t => t.id === payload.id);
+    const i = all.findIndex((t) => t.id === payload.id);
     if (i >= 0) all[i] = { ...all[i], ...payload };
   } else {
     payload.id = uid();
     all.unshift({ ...payload });
   }
   writeLS(LS_KEYS.templates, all);
-  return all.find(t => t.id === payload.id);
+  return all.find((t) => t.id === payload.id);
 }
 
 export async function deleteTemplate(ownerId, templateId) {
@@ -109,14 +134,16 @@ export async function deleteTemplate(ownerId, templateId) {
     return true;
   }
   const all = readLS(LS_KEYS.templates, []);
-  const next = all.filter(t => !(t.id === templateId && t.owner_id === ownerId));
+  const next = all.filter(
+    (t) => !(t.id === templateId && t.owner_id === ownerId)
+  );
   writeLS(LS_KEYS.templates, next);
   return true;
 }
 
 export async function duplicateTemplate(ownerId, templateId) {
   const list = await loadTemplates(ownerId);
-  const base = list.find(t => t.id === templateId);
+  const base = list.find((t) => t.id === templateId);
   if (!base) throw new Error("Template non trovato");
   const clone = {
     name: `${base.name} (copia)`,
@@ -125,7 +152,29 @@ export async function duplicateTemplate(ownerId, templateId) {
   return saveTemplate(ownerId, clone);
 }
 
-// ======= ACTIVE PLAN =======
+export async function renameTemplate(ownerId, templateId, newName) {
+  if (hasCloud()) {
+    const { data, error } = await supabase
+      .from("templates")
+      .update({ name: newName })
+      .eq("id", templateId)
+      .eq("owner_id", ownerId)
+      .select()
+      .single();
+    if (error) throw error;
+    return normTpl(data);
+  }
+  const all = readLS(LS_KEYS.templates, []);
+  const i = all.findIndex((t) => t.id === templateId && t.owner_id === ownerId);
+  if (i >= 0) {
+    all[i].name = String(newName || "").trim() || all[i].name;
+    writeLS(LS_KEYS.templates, all);
+    return all[i];
+  }
+  throw new Error("Template non trovato");
+}
+
+// ================= ACTIVE PLAN =================
 
 export async function getActivePlanForUser(ownerId) {
   if (hasCloud()) {
@@ -136,7 +185,7 @@ export async function getActivePlanForUser(ownerId) {
       .limit(1)
       .maybeSingle();
     if (error) throw error;
-    return data || null;
+    return data || null; // {id, owner_id, template_id, day_index}
   }
   return readLS(LS_KEYS.active, null);
 }
@@ -154,15 +203,24 @@ export async function setActivePlanForUser(ownerId, templateId, dayIndex = 0) {
     if (error) throw error;
     return data;
   }
-  const rec = { owner_id: ownerId, template_id: templateId, day_index: dayIndex };
+  const rec = {
+    owner_id: ownerId,
+    template_id: templateId,
+    day_index: dayIndex,
+  };
   writeLS(LS_KEYS.active, rec);
   return rec;
 }
 
-// ======= WORKOUT LOGS =======
+// ================= WORKOUT LOGS =================
 
 export async function addWorkoutLog(ownerId, dateISO, entries) {
-  const payload = { owner_id: ownerId, date: dateISO, entries: entries || [] };
+  // entries: array di set completati per il giorno
+  const payload = {
+    owner_id: ownerId,
+    date: dateISO, // 'YYYY-MM-DD'
+    entries: entries || [], // JSONB su supabase
+  };
 
   if (hasCloud()) {
     const { data, error } = await supabase
@@ -190,30 +248,10 @@ export async function getWorkoutLogs(ownerId, fromISO, toISO) {
   }
   const all = readLS(LS_KEYS.logs, []);
   return all
-    .filter(r => r.owner_id === ownerId)
-    .filter(r => (!fromISO || r.date >= fromISO) && (!toISO || r.date <= toISO))
+    .filter((r) => r.owner_id === ownerId)
+    .filter(
+      (r) =>
+        (!fromISO || r.date >= fromISO) && (!toISO || r.date <= toISO)
+    )
     .sort((a, b) => (a.date < b.date ? -1 : 1));
-}
-
-// Utility opzionale
-export async function renameTemplate(ownerId, templateId, newName) {
-  if (hasCloud()) {
-    const { data, error } = await supabase
-      .from("templates")
-      .update({ name: newName })
-      .eq("id", templateId)
-      .eq("owner_id", ownerId)
-      .select()
-      .single();
-    if (error) throw error;
-    return normTpl(data);
-  }
-  const all = readLS(LS_KEYS.templates, []);
-  const i = all.findIndex(t => t.id === templateId && t.owner_id === ownerId);
-  if (i >= 0) {
-    all[i].name = String(newName || "").trim() || all[i].name;
-    writeLS(LS_KEYS.templates, all);
-    return all[i];
-  }
-  throw new Error("Template non trovato");
 }

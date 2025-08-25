@@ -1,201 +1,187 @@
-// === START: src/App.jsx ===
-import React, { useEffect, useMemo, useState } from "react";
+// src/App.jsx
+import { useEffect, useMemo, useState } from "react";
 import "./index.css";
 
 import UserDashboard from "./pages/UserDashboard.jsx";
 import TemplateBuilder from "./pages/TemplateBuilder.jsx";
-import PTDashboard from "./pages/PTDashboard.jsx";
 import Calendar from "./pages/Calendar.jsx";
 import AuthBox from "./pages/AuthBox.jsx";
 
-import { DEMO_USERS, DEMO_PATIENTS } from "./utils.js";
+import { supabase, hasCloud } from "./lib/supabase";
+
+// 🔁 IMPORTA TUTTO **DA data.js** (non più da utils.js)
 import {
-  getTemplates, upsertTemplate, deleteTemplate,
-  getActivePlan, setActivePlan,
-  getWorkoutLogs, addWorkoutLog
-} from "./data";
+  DEMO_USERS,
+  DEMO_PATIENTS,
+  // API dati
+  loadTemplates,
+  saveTemplate,
+  deleteTemplate,
+  duplicateTemplate,
+  renameTemplate,
+  getActivePlanForUser,
+  setActivePlanForUser,
+  addWorkoutLog,
+  getWorkoutLogs,
+} from "./data.js";
 
-import { supabase, hasCloud, getSession, onAuthChange, signOut } from "./lib/supabase";
-
-// ---------------- Navbar ----------------
-function Navbar({ user, page, setPage, UserSwitcher, onLogout }) {
-  const isCoach =
-    user?.role?.toUpperCase?.() === "PT" ||
-    user?.role?.toUpperCase?.() === "COACH" ||
-    (typeof user?.id === "string" && user.id.startsWith("pt-"));
-
-  return (
-    <header className="app-header">
-      <div className="brand">
-        <span className="dot"></span>
-        <span className="brand-name">CoachFit</span>
-        <span className="badge">MVP</span>
-      </div>
-      <div className="header-actions">
-        {UserSwitcher ? <UserSwitcher /> : null}
-        <nav className="tabs">
-          <button className={`pill ${page==="allenamenti"?"active":""}`} onClick={()=>setPage("allenamenti")}>Allenamenti</button>
-          <button className={`pill ${page==="schede"?"active":""}`} onClick={()=>setPage("schede")}>Schede</button>
-          <button className={`pill ${page==="calendario"?"active":""}`} onClick={()=>setPage("calendario")}>Calendario</button>
-          {isCoach && (
-            <button className={`pill ${page==="pt"?"active":""}`} onClick={()=>setPage("pt")}>PT</button>
-          )}
-        </nav>
-
-        {hasCloud && (
-          <button className="pill" onClick={onLogout}>Esci</button>
-        )}
-      </div>
-    </header>
-  );
-}
-
-// ---------------- App ----------------
-export default function App(){
-  // ===== Auth state (solo se hasCloud)
+export default function App() {
+  // ======= Auth =======
   const [session, setSession] = useState(null);
+  const [userId, setUserId] = useState("user-1"); // fallback demo
+  const [displayName, setDisplayName] = useState("Coach Luca"); // demo
+
   useEffect(() => {
-    if (!hasCloud) return;
-    getSession().then(({ data }) => setSession(data.session || null));
-    const { data: sub } = onAuthChange((sess)=> setSession(sess));
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data?.session ?? null);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_ev, sess) => {
+      setSession(sess ?? null);
+    });
     return () => sub?.subscription?.unsubscribe?.();
   }, []);
 
-  // ===== Utente “logico” per l’app
-  // Se loggato con Supabase → usa user.id; altrimenti demo user-1 / pt-1
-  const demoUsers = useMemo(()=> DEMO_USERS, []);
-  const cloudUserId = session?.user?.id || null;
-  const [currentUserId, setCurrentUserId] = useState(demoUsers[0]?.id || "");
-
-  useEffect(()=>{
-    if (cloudUserId) {
-      setCurrentUserId(cloudUserId); // forza l’utente = logged user
+  // mappa ID utente
+  useEffect(() => {
+    if (session?.user?.id) {
+      setUserId(session.user.id);
+      setDisplayName(session.user.email?.split("@")[0] || "Utente");
+    } else {
+      // demo locale
+      setUserId("user-1");
+      setDisplayName("Coach Luca");
     }
-  }, [cloudUserId]);
+  }, [session]);
 
-  const currentUser = useMemo(()=>{
-    if (cloudUserId) return { id: cloudUserId, role: "USER", name:"Utente" };
-    return demoUsers.find(u=>u.id===currentUserId) || demoUsers[0];
-  }, [cloudUserId, demoUsers, currentUserId]);
-
+  // ======= Router minimale =======
   const [page, setPage] = useState("allenamenti");
 
-  // Stato cloud/local dati
-  const [templates, setTemplatesState] = useState([]);       // [{id,name,days}]
-  const [activePlan, setActivePlanState] = useState(null);   // {id,name,days}
-  const [workoutLogs, setWorkoutLogsState] = useState([]);
+  // ======= Stato dati condiviso =======
+  const [templates, setTemplates] = useState([]);
+  const [activePlan, setActivePlan] = useState(null);
+  const [workoutLogs, setWorkoutLogs] = useState([]);
 
-  // Carica dati quando cambia utente (id loggato o demo)
-  useEffect(()=>{
-    async function load() {
-      const uid = cloudUserId || currentUserId;
-      const [tpls, plan, logs] = await Promise.all([
-        getTemplates(uid),
-        getActivePlan(uid),
-        getWorkoutLogs(uid)
-      ]);
-      setTemplatesState(tpls);
-      setActivePlanState(plan);
-      setWorkoutLogsState(logs);
-    }
-    if (currentUserId || cloudUserId) load();
-  }, [currentUserId, cloudUserId]);
+  // carica templates & activePlan all’avvio / quando cambia utente
+  useEffect(() => {
+    (async () => {
+      const list = await loadTemplates(userId);
+      setTemplates(list);
+      const ap = await getActivePlanForUser(userId);
+      setActivePlan(ap);
+      const logs = await getWorkoutLogs(userId);
+      setWorkoutLogs(logs);
+    })().catch(console.error);
+  }, [userId]);
 
-  // API wrapper per passare alle pagine
-  const saveTemplate = async (tpl) => {
-    const uid = cloudUserId || currentUserId;
-    const saved = await upsertTemplate(uid, tpl);
-    if (!saved) return;
-    setTemplatesState(prev => {
-      const exists = prev.some(t => t.id === saved.id);
-      return exists ? prev.map(t => t.id===saved.id ? saved : t) : [saved, ...prev];
-    });
+  // ======= Adapter funzioni =======
+  const pushWorkoutLog = async ({ date, entries }) => {
+    const res = await addWorkoutLog(userId, date, entries);
+    const logs = await getWorkoutLogs(userId);
+    setWorkoutLogs(logs);
+    return res;
   };
 
-  const removeTemplate = async (id) => {
-    const uid = cloudUserId || currentUserId;
-    const ok = await deleteTemplate(uid, id);
-    if (ok) setTemplatesState(prev => prev.filter(t => t.id !== id));
+  const onSaveTemplate = async (tpl) => {
+    const saved = await saveTemplate(userId, tpl);
+    const list = await loadTemplates(userId);
+    setTemplates(list);
+    return saved;
   };
 
-  const assignActivePlan = async (tpl) => {
-    const uid = cloudUserId || currentUserId;
-    const ok = await setActivePlan(uid, tpl || null);
-    if (ok) setActivePlanState(tpl || null);
+  const onDeleteTemplate = async (templateId) => {
+    await deleteTemplate(userId, templateId);
+    const list = await loadTemplates(userId);
+    setTemplates(list);
   };
 
-  const pushWorkoutLog = async (log) => {
-    const uid = cloudUserId || currentUserId;
-    const ok = await addWorkoutLog(uid, log);
-    if (ok) setWorkoutLogsState(prev => [{id: crypto.randomUUID(), ...log}, ...prev]);
+  const onDuplicateTemplate = async (templateId) => {
+    await duplicateTemplate(userId, templateId);
+    const list = await loadTemplates(userId);
+    setTemplates(list);
   };
 
-  const UserSwitcher = cloudUserId ? null : () => (
-    <select className="input" value={currentUserId} onChange={e=>setCurrentUserId(e.target.value)}>
-      {demoUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
-    </select>
-  );
+  const onRenameTemplate = async (templateId, name) => {
+    await renameTemplate(userId, templateId, name);
+    const list = await loadTemplates(userId);
+    setTemplates(list);
+  };
 
-  // ==== Gating: se siamo su cloud e non c’è session → AuthBox
-  if (hasCloud && !session) {
-    return <AuthBox />;
-  }
+  const setActivePlanForUserWrapped = async (templateId, dayIndex = 0) => {
+    const ap = await setActivePlanForUser(userId, templateId, dayIndex);
+    setActivePlan(ap);
+    return ap;
+  };
+
+  // ======= UI =======
+  const logged = !!session || !hasCloud(); // se no-cloud, permetti demo senza login
 
   return (
-    <div className="app-shell">
-      <Navbar
-        user={currentUser}
-        page={page}
-        setPage={setPage}
-        UserSwitcher={UserSwitcher}
-        onLogout={signOut}
-      />
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <header className="flex items-center justify-between px-6 py-4 border-b bg-white">
+        <div className="font-semibold">CoachFit <span className="ml-2 rounded bg-slate-100 px-2 py-0.5 text-xs">MVP</span></div>
+        <nav className="flex gap-2">
+          <button
+            className={`px-3 py-1 rounded-full ${page === "allenamenti" ? "bg-indigo-600 text-white" : "bg-slate-100"}`}
+            onClick={() => setPage("allenamenti")}
+          >
+            Allenamenti
+          </button>
+          <button
+            className={`px-3 py-1 rounded-full ${page === "schede" ? "bg-indigo-600 text-white" : "bg-slate-100"}`}
+            onClick={() => setPage("schede")}
+          >
+            Schede
+          </button>
+          <button
+            className={`px-3 py-1 rounded-full ${page === "calendario" ? "bg-indigo-600 text-white" : "bg-slate-100"}`}
+            onClick={() => setPage("calendario")}
+          >
+            Calendario
+          </button>
+        </nav>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-slate-600">{displayName}</span>
+          {hasCloud() && (
+            logged ? (
+              <button
+                className="text-sm px-3 py-1 rounded bg-slate-100"
+                onClick={() => supabase.auth.signOut()}
+              >
+                Esci
+              </button>
+            ) : null
+          )}
+        </div>
+      </header>
 
-      <main className="app-main">
-        {page==="allenamenti" && (
-          <UserDashboard
-            user={currentUser}
-            activePlan={activePlan}
-            setActivePlanForUser={assignActivePlan}
-            templates={templates}
-            setTemplates={setTemplatesState}
-            workoutLogs={workoutLogs}
-            setWorkoutLogs={setWorkoutLogsState}
-            pushWorkoutLog={pushWorkoutLog}
-          />
-        )}
-
-        {page==="schede" && (
+      <main className="p-6">
+        {hasCloud() && !logged ? (
+          <AuthBox />
+        ) : page === "schede" ? (
           <TemplateBuilder
-            user={currentUser}
+            user={{ id: userId, name: displayName }}
             templates={templates}
-            saveTemplate={saveTemplate}
-            deleteTemplate={removeTemplate}
+            onSaveTemplate={onSaveTemplate}
+            onDeleteTemplate={onDeleteTemplate}
+            onDuplicateTemplate={onDuplicateTemplate}
+            onRenameTemplate={onRenameTemplate}
           />
-        )}
-
-        {page==="calendario" && (
+        ) : page === "calendario" ? (
           <Calendar
-            user={currentUser}
+            user={{ id: userId, name: displayName }}
             workoutLogs={workoutLogs}
-            setWorkoutLogs={setWorkoutLogsState}
           />
-        )}
-
-        {page==="pt" && (
-          <PTDashboard
-            coach={currentUser}
-            patients={DEMO_PATIENTS}
-            templates={templates}
-            assignments={[]}
-            setAssignments={()=>{}}
+        ) : (
+          <UserDashboard
+            user={{ id: userId, name: displayName }}
+            activePlan={activePlan}
+            setActivePlanForUser={setActivePlanForUserWrapped}
             workoutLogs={workoutLogs}
-            setActivePlanForUser={(tpl, userId)=>{/* estenderemo multi-user */}}
-            activePlans={{[currentUserId]: activePlan}}
+            pushWorkoutLog={pushWorkoutLog}
+            templates={templates}
           />
         )}
       </main>
     </div>
   );
 }
-// === END: src/App.jsx ===
