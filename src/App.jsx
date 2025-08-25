@@ -8,7 +8,6 @@ import PTDashboard from "./pages/PTDashboard.jsx";
 import Calendar from "./pages/Calendar.jsx";
 import AuthBox from "./pages/AuthBox.jsx";
 
-import { supabase, hasCloud } from "./lib/supabase";
 import { DEMO_USERS, DEMO_PATIENTS } from "./utils.js";
 import {
   getTemplates, upsertTemplate, deleteTemplate,
@@ -16,8 +15,10 @@ import {
   getWorkoutLogs, addWorkoutLog
 } from "./data";
 
+import { supabase, hasCloud, getSession, onAuthChange, signOut } from "./lib/supabase";
+
 // ---------------- Navbar ----------------
-function Navbar({ user, page, setPage, UserSwitcher }) {
+function Navbar({ user, page, setPage, UserSwitcher, onLogout }) {
   const isCoach =
     user?.role?.toUpperCase?.() === "PT" ||
     user?.role?.toUpperCase?.() === "COACH" ||
@@ -40,6 +41,10 @@ function Navbar({ user, page, setPage, UserSwitcher }) {
             <button className={`pill ${page==="pt"?"active":""}`} onClick={()=>setPage("pt")}>PT</button>
           )}
         </nav>
+
+        {hasCloud && (
+          <button className="pill" onClick={onLogout}>Esci</button>
+        )}
       </div>
     </header>
   );
@@ -47,121 +52,104 @@ function Navbar({ user, page, setPage, UserSwitcher }) {
 
 // ---------------- App ----------------
 export default function App(){
-  // Auth state
-  const [authUser, setAuthUser] = useState(null);
-  const [authReady, setAuthReady] = useState(!hasCloud);
+  // ===== Auth state (solo se hasCloud)
+  const [session, setSession] = useState(null);
+  useEffect(() => {
+    if (!hasCloud) return;
+    getSession().then(({ data }) => setSession(data.session || null));
+    const { data: sub } = onAuthChange((sess)=> setSession(sess));
+    return () => sub?.subscription?.unsubscribe?.();
+  }, []);
 
-  // Demo users (solo in fallback)
-  const [users] = useState(DEMO_USERS);
+  // ===== Utente “logico” per l’app
+  // Se loggato con Supabase → usa user.id; altrimenti demo user-1 / pt-1
+  const demoUsers = useMemo(()=> DEMO_USERS, []);
+  const cloudUserId = session?.user?.id || null;
+  const [currentUserId, setCurrentUserId] = useState(demoUsers[0]?.id || "");
 
-  const [currentUserId, setCurrentUserId] = useState(users[0]?.id || "");
-  const currentUser = useMemo(()=>{
-    if (authUser) {
-      return { id: authUser.id, name: authUser.email?.split("@")[0] || "Utente", role: "USER" };
+  useEffect(()=>{
+    if (cloudUserId) {
+      setCurrentUserId(cloudUserId); // forza l’utente = logged user
     }
-    return users.find(u=>u.id===currentUserId);
-  }, [users, currentUserId, authUser]);
+  }, [cloudUserId]);
+
+  const currentUser = useMemo(()=>{
+    if (cloudUserId) return { id: cloudUserId, role: "USER", name:"Utente" };
+    return demoUsers.find(u=>u.id===currentUserId) || demoUsers[0];
+  }, [cloudUserId, demoUsers, currentUserId]);
 
   const [page, setPage] = useState("allenamenti");
 
-  // Stato cloud
-  const [templates, setTemplatesState] = useState([]);
-  const [activePlan, setActivePlanState] = useState(null);
+  // Stato cloud/local dati
+  const [templates, setTemplatesState] = useState([]);       // [{id,name,days}]
+  const [activePlan, setActivePlanState] = useState(null);   // {id,name,days}
   const [workoutLogs, setWorkoutLogsState] = useState([]);
 
-  // Auth bootstrap
+  // Carica dati quando cambia utente (id loggato o demo)
   useEffect(()=>{
-    if (!hasCloud) { setAuthReady(true); return; }
-    let mounted = true;
-
-    (async ()=>{
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!mounted) return;
-      setAuthUser(user || null);
-      setAuthReady(true);
-      if (user) setCurrentUserId(user.id);
-    })();
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_evt, session)=>{
-      const user = session?.user ?? null;
-      setAuthUser(user);
-      if (user) setCurrentUserId(user.id);
-      if (!user) {
-        setTemplatesState([]);
-        setActivePlanState(null);
-        setWorkoutLogsState([]);
-      }
-    });
-    return ()=> sub?.subscription?.unsubscribe?.();
-  }, []);
-
-  // Caricamento dati
-  useEffect(()=>{
-    if (!currentUserId) return;
-    async function load(){
+    async function load() {
+      const uid = cloudUserId || currentUserId;
       const [tpls, plan, logs] = await Promise.all([
-        getTemplates(currentUserId),
-        getActivePlan(currentUserId),
-        getWorkoutLogs(currentUserId)
+        getTemplates(uid),
+        getActivePlan(uid),
+        getWorkoutLogs(uid)
       ]);
       setTemplatesState(tpls);
       setActivePlanState(plan);
       setWorkoutLogsState(logs);
     }
-    load();
-  }, [currentUserId]);
+    if (currentUserId || cloudUserId) load();
+  }, [currentUserId, cloudUserId]);
 
-  // API wrapper
+  // API wrapper per passare alle pagine
   const saveTemplate = async (tpl) => {
-    const saved = await upsertTemplate(currentUserId, tpl);
+    const uid = cloudUserId || currentUserId;
+    const saved = await upsertTemplate(uid, tpl);
     if (!saved) return;
     setTemplatesState(prev => {
       const exists = prev.some(t => t.id === saved.id);
       return exists ? prev.map(t => t.id===saved.id ? saved : t) : [saved, ...prev];
     });
   };
+
   const removeTemplate = async (id) => {
-    const ok = await deleteTemplate(currentUserId, id);
+    const uid = cloudUserId || currentUserId;
+    const ok = await deleteTemplate(uid, id);
     if (ok) setTemplatesState(prev => prev.filter(t => t.id !== id));
   };
+
   const assignActivePlan = async (tpl) => {
-    const ok = await setActivePlan(currentUserId, tpl || null);
+    const uid = cloudUserId || currentUserId;
+    const ok = await setActivePlan(uid, tpl || null);
     if (ok) setActivePlanState(tpl || null);
-    return ok;
   };
+
   const pushWorkoutLog = async (log) => {
-    const ok = await addWorkoutLog(currentUserId, log);
+    const uid = cloudUserId || currentUserId;
+    const ok = await addWorkoutLog(uid, log);
     if (ok) setWorkoutLogsState(prev => [{id: crypto.randomUUID(), ...log}, ...prev]);
   };
 
-  const UserSwitcher = authUser ? null : () => (
+  const UserSwitcher = cloudUserId ? null : () => (
     <select className="input" value={currentUserId} onChange={e=>setCurrentUserId(e.target.value)}>
-      {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+      {demoUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
     </select>
   );
 
-  async function handleLogout(){ await supabase?.auth?.signOut(); }
-
-  if (!authReady) return null;
-  if (hasCloud && !authUser) {
-    return (
-      <div className="app-shell">
-        <Navbar user={null} page={"schede"} setPage={()=>{}} UserSwitcher={null} />
-        <AuthBox />
-      </div>
-    );
+  // ==== Gating: se siamo su cloud e non c’è session → AuthBox
+  if (hasCloud && !session) {
+    return <AuthBox />;
   }
 
   return (
     <div className="app-shell">
-      <Navbar user={currentUser} page={page} setPage={setPage} UserSwitcher={UserSwitcher} />
-
-      {authUser && (
-        <div style={{textAlign:"right", padding:"8px 16px"}}>
-          <span className="muted" style={{marginRight:8}}>{authUser.email}</span>
-          <button className="btn" onClick={handleLogout}>Logout</button>
-        </div>
-      )}
+      <Navbar
+        user={currentUser}
+        page={page}
+        setPage={setPage}
+        UserSwitcher={UserSwitcher}
+        onLogout={signOut}
+      />
 
       <main className="app-main">
         {page==="allenamenti" && (
@@ -190,6 +178,7 @@ export default function App(){
           <Calendar
             user={currentUser}
             workoutLogs={workoutLogs}
+            setWorkoutLogs={setWorkoutLogsState}
           />
         )}
 
@@ -201,7 +190,7 @@ export default function App(){
             assignments={[]}
             setAssignments={()=>{}}
             workoutLogs={workoutLogs}
-            setActivePlanForUser={(tpl, userId)=>{}}
+            setActivePlanForUser={(tpl, userId)=>{/* estenderemo multi-user */}}
             activePlans={{[currentUserId]: activePlan}}
           />
         )}

@@ -4,26 +4,27 @@ import { createClient } from '@supabase/supabase-js';
 const url  = import.meta.env.VITE_SUPABASE_URL;
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// Se non hai messo le ENV, restiamo in "local mode" (null evita chiamate)
-export const supabase = (url && anon)
+export const hasCloud = Boolean(url && anon);
+
+// Client unico, con sessione persistente (fix al problema che ti slogga)
+export const supabase = hasCloud
   ? createClient(url, anon, {
       auth: {
-        persistSession: true,          // ricorda sessione su refresh
-        autoRefreshToken: true,        // auto refresh jwt
-        detectSessionInUrl: true,      // gestisce callback magic-link
+        persistSession: true,        // <-- RESTA LOGGATO
+        autoRefreshToken: true,
       },
     })
   : null;
 
-export const hasCloud = Boolean(supabase);
+// Helper comodi
+export async function getSession() {
+  if (!supabase) return { data:{ session:null }, error:null };
+  return supabase.auth.getSession();
+}
 
-// Helper comodi per la UI
-export async function signInWithMagicLink(email) {
-  if (!supabase) throw new Error('Supabase non configurato');
-  return supabase.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: window.location.origin },
-  });
+export function onAuthChange(cb) {
+  if (!supabase) return { data:null, error:null };
+  return supabase.auth.onAuthStateChange((_event, sess) => cb(sess || null));
 }
 
 export async function signOut() {
