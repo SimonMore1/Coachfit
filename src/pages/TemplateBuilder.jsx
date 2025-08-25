@@ -1,213 +1,262 @@
 // === START: src/pages/TemplateBuilder.jsx ===
 import { useEffect, useMemo, useRef, useState } from "react";
-import { EXERCISE_CATALOG, MUSCLE_GROUPS, capWords } from "../utils";
+import { EXERCISE_LIBRARY, MUSCLE_GROUPS, capWords } from "../utils";
 
-// ------- helpers -------
+/**
+ * Props attese:
+ * - user                       { id, name, role }
+ * - templates                  [{ id, name, days:[{id,name,entries:[]}] }]
+ * - saveTemplate               (tpl) => Promise<savedTpl>
+ * - deleteTemplate             (tplId) => Promise<boolean>
+ */
+
 function newTemplate() {
   return {
-    id: undefined,
+    id: undefined, // nuovo finché non salvi su cloud (verrà assegnato)
     name: "",
     days: [
-      { id: crypto.randomUUID(), name: "Giorno 1", exercises: [] },
-      { id: crypto.randomUUID(), name: "Giorno 2", exercises: [] },
+      { id: crypto.randomUUID(), name: "Giorno 1", entries: [] },
+      { id: crypto.randomUUID(), name: "Giorno 2", entries: [] },
     ],
   };
 }
-function newExerciseFrom(item) {
+
+function makeEntryFromExercise(ex, orderIndex = 0) {
+  // entry “snellita”: include già sets/reps che la pagina Allenamenti leggerà
   return {
-    id: crypto.randomUUID(),
-    name: item?.name || "",
-    group: item?.muscle || "",
-    equipment: item?.equipment || "",
-    sets: 3,
-    reps: 10,
-    kg: null,
-    note: "",
+    exerciseId: ex.id || null,
+    exerciseName: ex.name,
+    muscleGroup: ex.muscle || null,
+    equipment: ex.equip || null,
+
+    // campi chiave per Allenamenti
+    sets: 3,      // default: modificabile nella riga
+    reps: 10,     // default: modificabile nella riga
+
+    // opzionali
+    weight_kg: null,
+    notes: null,
+
+    orderIndex
   };
 }
 
-// calcolo riepilogo serie per gruppo (su TUTTA la scheda)
-function computeSeriesByGroup(draft) {
-  const map = new Map(); // group -> serie
-  if (!draft) return { rows: [], total: 0 };
-
-  for (const day of draft.days || []) {
-    for (const ex of day.exercises || []) {
-      const g = ex.group || "Altro";
-      const s = Number(ex.sets ?? 0);
-      map.set(g, (map.get(g) || 0) + (isFinite(s) ? s : 0));
-    }
-  }
-  const rows = Array.from(map.entries())
-    .map(([group, sets]) => ({ group, sets }))
-    .sort((a, b) => a.group.localeCompare(b.group, "it"));
-  const total = rows.reduce((sum, r) => sum + r.sets, 0);
-  return { rows, total };
-}
-
-// ------- componente -------
 export default function TemplateBuilder({ user, templates, saveTemplate, deleteTemplate }) {
-  const [activeId, setActiveId]   = useState(templates[0]?.id || null);
-  const active                    = useMemo(() => templates.find(t => t.id === activeId) || null, [templates, activeId]);
+  // selezione scheda a sinistra
+  const [activeId, setActiveId] = useState(templates[0]?.id ?? null);
+  const active = useMemo(() => templates.find(t => t.id === activeId) || null, [templates, activeId]);
 
-  const [draft, setDraft]         = useState(active || null);
-  const [dayIdx, setDayIdx]       = useState(0);
+  // bozza in modifica
+  const [draft, setDraft] = useState(active ?? null);
+  const [dayIdx, setDayIdx] = useState(0);
 
-  // Filtri (senza “Modalità”)
-  const groups  = MUSCLE_GROUPS;
-  const equips  = useMemo(() => [...new Set(EXERCISE_CATALOG.map(e => e.equipment))], []);
-
+  // selezione da libreria
+  const [q, setQ] = useState("");
   const [fGroup, setFGroup] = useState("");
   const [fEquip, setFEquip] = useState("");
+  const [selectedId, setSelectedId] = useState("");
 
-  // Ricerca + Autocomplete
-  const [q, setQ]             = useState("");
-  const [showSug, setShowSug] = useState(false);
-  const [activeSug, setActiveSug] = useState(-1);
-  const inputRef = useRef(null);
+  // focus sul nome scheda quando ne crei una nuova
+  const nameRef = useRef(null);
+  useEffect(() => {
+    if (draft && draft.id === undefined && nameRef.current) {
+      nameRef.current.focus();
+    }
+  }, [draft?.id]);
 
-  // focus su Serie dopo aggiunta
-  const lastAddedIdRef = useRef(null);
-  const lastAddedSetsRef = useRef(null);
+  // quando cambi scheda
+  useEffect(() => {
+    if (active) {
+      setDraft(structuredClone(active));
+      setDayIdx(0);
+    } else {
+      setDraft(null);
+      setDayIdx(0);
+    }
+  }, [activeId]); // eslint-disable-line
 
-  // libreria filtrata
-  const filteredLib = useMemo(() => {
-    const base = EXERCISE_CATALOG.filter(e => {
+  const groups  = MUSCLE_GROUPS;
+  const equips  = useMemo(() => [...new Set(EXERCISE_LIBRARY.map(e => e.equip))], []);
+  const lib = useMemo(() => {
+    const query = (q || "").toLowerCase();
+    return EXERCISE_LIBRARY.filter(e => {
+      if (query && !e.name.toLowerCase().includes(query)) return false;
       if (fGroup && e.muscle !== fGroup) return false;
-      if (fEquip && e.equipment !== fEquip) return false;
+      if (fEquip && e.equip !== fEquip) return false;
       return true;
     });
-    if (!q.trim()) return base;
-
-    const s = q.trim().toLowerCase();
-    const starts = [], includes = [];
-    for (const e of base) {
-      const n = e.name.toLowerCase();
-      if (n.startsWith(s)) starts.push(e);
-      else if (n.includes(s)) includes.push(e);
-    }
-    return [...starts, ...includes];
   }, [q, fGroup, fEquip]);
 
   function selectTemplate(t) {
     setActiveId(t?.id ?? null);
-    setDraft(structuredClone(t));
-    setDayIdx(0);
   }
+
   function addTemplate() {
-    const t = newTemplate();
     setActiveId(undefined);
-    setDraft(t);
+    setDraft(newTemplate());
     setDayIdx(0);
-    setTimeout(() => document.getElementById("tpl-name-input")?.focus(), 0);
+    setSelectedId("");
+    setQ("");
   }
-  function updateDraft(patch) { setDraft(prev => ({ ...prev, ...patch })); }
+
+  function updateDraft(patch) {
+    setDraft(prev => ({ ...prev, ...patch }));
+  }
+
   function updateDayName(i, name) {
-    const days = draft.days.map((d, idx) => (idx === i ? { ...d, name } : d));
+    const days = draft.days.map((d, idx) => idx === i ? { ...d, name } : d);
     updateDraft({ days });
   }
+
   function addDay() {
-    const days = [...draft.days, { id: crypto.randomUUID(), name: `Giorno ${draft.days.length + 1}`, exercises: [] }];
+    const days = [
+      ...draft.days,
+      { id: crypto.randomUUID(), name: `Giorno ${draft.days.length + 1}`, entries: [] }
+    ];
     updateDraft({ days });
     setDayIdx(days.length - 1);
   }
+
   function removeDay() {
-    if (draft.days.length <= 1) return;
+    if (!draft || draft.days.length <= 1) return;
     const days = draft.days.toSpliced(dayIdx, 1);
     updateDraft({ days });
     setDayIdx(Math.max(0, dayIdx - 1));
   }
-  function addExerciseFromCatalog(item) {
-    if (!item) return;
+
+  function addSelectedExercise() {
+    if (!selectedId) return;
+    const ex = EXERCISE_LIBRARY.find(e => e.id === selectedId);
+    if (!ex) return;
+    const curr = draft.days[dayIdx];
+    const orderIndex = curr.entries.length;
+    const entry = makeEntryFromExercise(ex, orderIndex);
     const days = draft.days.map((d, idx) => {
       if (idx !== dayIdx) return d;
-      const newEx = newExerciseFrom(item);
-      lastAddedIdRef.current = newEx.id;
-      return { ...d, exercises: [...d.exercises, newEx] };
+      return { ...d, entries: [...d.entries, entry] };
     });
     updateDraft({ days });
-    setQ(""); setShowSug(false); setActiveSug(-1);
-    setTimeout(() => { lastAddedSetsRef.current?.focus?.(); }, 0);
+    setSelectedId("");
+    // dopo aver aggiunto, focus su Serie della riga appena creata? (lo lasciamo opzionale)
   }
-  function updateExercise(i, patch) {
+
+  function updateEntry(i, patch) {
     const days = draft.days.map((d, idx) => {
       if (idx !== dayIdx) return d;
-      const exs = d.exercises.map((ex, ii) => (ii === i ? { ...ex, ...patch } : ex));
-      return { ...d, exercises: exs };
-    });
-    updateDraft({ days });
-  }
-  function removeExercise(i) {
-    const days = draft.days.map((d, idx) => {
-      if (idx !== dayIdx) return d;
-      const exs = d.exercises.toSpliced(i, 1);
-      return { ...d, exercises: exs };
+      const next = d.entries.map((en, ii) => ii === i ? { ...en, ...patch } : en);
+      return { ...d, entries: next };
     });
     updateDraft({ days });
   }
+
+  function removeEntry(i) {
+    const days = draft.days.map((d, idx) => {
+      if (idx !== dayIdx) return d;
+      const next = d.entries.toSpliced(i, 1).map((en, ii) => ({ ...en, orderIndex: ii }));
+      return { ...d, entries: next };
+    });
+    updateDraft({ days });
+  }
+
   async function handleSave() {
+    // fallback: se nome vuoto, salviamo con un default (come richiesto)
+    const nameToSave = draft.name?.trim() || "Scheda senza titolo";
     const saved = await saveTemplate({
       id: draft.id,
-      name: draft.name?.trim() || "",
-      days: draft.days,
+      name: nameToSave,
+      days: draft.days
     });
-    const after = saved || draft;
-    selectTemplate(after);
+    if (saved) {
+      // risincronizza lista/bozza
+      setActiveId(saved.id);
+      setDraft(structuredClone(saved));
+      alert("Scheda salvata nel cloud ✅");
+    } else {
+      alert("Errore nel salvataggio.");
+    }
   }
+
   async function handleDelete(id) {
-    await deleteTemplate(id);
-    setDraft(null);
-    setActiveId(templates[0]?.id || null);
+    if (!id) {
+      // bozza non salvata
+      setDraft(null);
+      setActiveId(templates[0]?.id ?? null);
+      return;
+    }
+    const ok = await deleteTemplate(id);
+    if (ok) {
+      setDraft(null);
+      setActiveId(templates[0]?.id ?? null);
+    }
   }
 
-  // debounce 200ms
-  const [debouncedQ, setDebouncedQ] = useState("");
-  useEffect(() => { const t = setTimeout(() => setDebouncedQ(q), 200); return () => clearTimeout(t); }, [q]);
-  function onSearchKeyDown(e) {
-    if (!showSug && (e.key === "ArrowDown" || e.key === "ArrowUp")) setShowSug(true);
-    const list = filteredLib.slice(0, 10);
-    if (!list.length) return;
-    if (e.key === "ArrowDown") { e.preventDefault(); setActiveSug(p => (p < list.length - 1 ? p + 1 : 0)); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); setActiveSug(p => (p > 0 ? p - 1 : list.length - 1)); }
-    else if (e.key === "Enter") {
-      let item = null;
-      if (activeSug >= 0) item = list[activeSug];
-      else if (list.length === 1) item = list[0];
-      if (item) { e.preventDefault(); addExerciseFromCatalog(item); }
-    } else if (e.key === "Escape") { setShowSug(false); setActiveSug(-1); }
-  }
+  // riepilogo serie per gruppo (live)
+  const seriesByGroup = useMemo(() => {
+    if (!draft) return {};
+    const acc = {};
+    for (const d of draft.days) {
+      for (const en of d.entries) {
+        const g = en.muscleGroup || "Altro";
+        const s = Number(en.sets) || 0;
+        acc[g] = (acc[g] || 0) + s;
+      }
+    }
+    return acc;
+  }, [draft]);
 
-  // === RIEPILOGO SERIE (live) ===
-  const summary = useMemo(() => computeSeriesByGroup(draft), [draft]);
+  const seriesTotal = useMemo(
+    () => Object.values(seriesByGroup).reduce((s, n) => s + n, 0),
+    [seriesByGroup]
+  );
 
   return (
     <div className="app-main">
-      <h2 className="font-semibold" style={{ fontSize: 28, margin: "10px 0 14px" }}>
-        Builder schede — Utente: <span className="font-medium">{user?.name}</span>
-      </h2>
+      <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", margin:"6px 0 14px"}}>
+        <h2 className="font-semibold" style={{fontSize:24, margin:0}}>
+          Schede — <span className="font-medium">{user?.name}</span>
+        </h2>
+        <div className="muted">Costruisci e salva le tue schede nel cloud</div>
+      </div>
 
-      {/* GRID con 3 colonne: lista | editor | summary (desktop) */}
-      <div className="tpl-grid tpl-grid--with-summary">
+      <div className="tpl-grid" style={{gridTemplateColumns: "320px 1fr 260px"}}>
         {/* SINISTRA: lista schede */}
         <div className="card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8}}>
             <div className="font-semibold">Le mie schede</div>
-            <button className="btn btn-primary" onClick={addTemplate}>+ Nuova scheda</button>
+            <button className="btn btn-primary" onClick={addTemplate}>+ Nuova</button>
           </div>
 
           <div className="tpl-list">
-            {templates.length === 0 && (<div className="muted">Nessuna scheda salvata.</div>)}
+            {templates.length === 0 && <div className="muted">Nessuna scheda salvata.</div>}
             {templates.map(t => {
-              const daysCount = t.days.length;
-              const exCount = t.days.reduce((s, d) => s + d.exercises.length, 0);
               const activeCls = t.id === activeId ? "tpl-item active" : "tpl-item";
+              const daysCount = t.days.length;
+              const exCount = t.days.reduce((s, d) => s + (d.entries?.length || 0), 0);
               return (
                 <div key={t.id} className={activeCls} onClick={() => selectTemplate(t)}>
                   <div className="tpl-title">{t.name || "Scheda senza titolo"}</div>
                   <div className="muted">{daysCount} giorni — {exCount} esercizi</div>
                   <div className="tpl-actions">
-                    <button className="btn-ghost" onClick={(e) => { e.stopPropagation(); selectTemplate({ ...t, id: undefined, name: (t.name || "Copia") + " (copia)" }); }}>Duplica</button>
-                    <button className="btn-ghost" onClick={(e) => { e.stopPropagation(); handleDelete(t.id); }}>Elimina</button>
+                    <button
+                      className="btn-ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const copy = structuredClone(t);
+                        copy.id = undefined;
+                        copy.name = (t.name || "Scheda") + " (copia)";
+                        setActiveId(undefined);
+                        setDraft(copy);
+                        setDayIdx(0);
+                      }}
+                    >
+                      Duplica
+                    </button>
+                    <button
+                      className="btn-ghost"
+                      onClick={(e) => { e.stopPropagation(); handleDelete(t.id); }}
+                    >
+                      Elimina
+                    </button>
                   </div>
                 </div>
               );
@@ -221,142 +270,149 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
             <div className="muted">Seleziona o crea una scheda per modificarla.</div>
           ) : (
             <>
-              <div className="grid" style={{ gridTemplateColumns: "1.2fr .8fr auto auto auto", gap: 8 }}>
+              {/* Header editor */}
+              <div className="grid" style={{gridTemplateColumns:"1.4fr .9fr auto auto auto", gap:8}}>
                 <input
-                  id="tpl-name-input"
+                  ref={nameRef}
                   className="input"
                   value={draft.name}
-                  onChange={(e) => updateDraft({ name: capWords(e.target.value) })}
+                  onChange={e => updateDraft({ name: capWords(e.target.value) })}
                   placeholder="Nome scheda…"
                 />
-                <select className="input" value={dayIdx} onChange={(e) => setDayIdx(Number(e.target.value))}>
-                  {draft.days.map((d, idx) => <option key={d.id} value={idx}>{d.name}</option>)}
+
+                <select
+                  className="input"
+                  value={dayIdx}
+                  onChange={e => setDayIdx(Number(e.target.value))}
+                >
+                  {draft.days.map((d, idx) => (
+                    <option key={d.id} value={idx}>
+                      {d.name || `Giorno ${idx + 1}`}
+                    </option>
+                  ))}
                 </select>
+
                 <button className="btn" onClick={addDay}>+ Giorno</button>
                 <button className="btn" onClick={removeDay}>−</button>
                 <button className="btn btn-primary" onClick={handleSave}>💾 Salva su cloud</button>
               </div>
 
-              <hr style={{ border: "none", borderTop: "1px dashed #e2e8f0", margin: "12px 0" }} />
+              {/* Rename giorno */}
+              <div className="mt-3" style={{display:"flex", gap:8, alignItems:"center"}}>
+                <span className="label">Rinomina giorno selezionato:</span>
+                <input
+                  className="input"
+                  value={draft.days[dayIdx]?.name || ""}
+                  onChange={e => updateDayName(dayIdx, capWords(e.target.value))}
+                  placeholder="Es. Spinta, Tirata, Gambe…"
+                />
+              </div>
 
-              <div className="label">Esercizi — {draft.days[dayIdx]?.name?.toLowerCase()}</div>
+              <hr style={{border:"none", borderTop:"1px dashed #e2e8f0", margin:"12px 0"}}/>
 
-              {/* Riga inserimento + filtri */}
-              <div className="grid lib-insert-row">
-                {/* Ricerca con autocomplete */}
-                <div className="ac-wrap">
-                  <input
-                    ref={inputRef}
-                    className="input"
-                    placeholder="Cerca esercizio…"
-                    value={q}
-                    onChange={(e) => { setQ(e.target.value); setShowSug(true); }}
-                    onFocus={() => setShowSug(true)}
-                    onKeyDown={onSearchKeyDown}
-                    onBlur={() => setTimeout(() => { setShowSug(false); setActiveSug(-1); }, 120)}
-                    aria-autocomplete="list"
-                    aria-expanded={showSug}
-                    aria-controls="exercise-suggestions"
-                  />
-                  {showSug && q.trim() && (
-                    <div id="exercise-suggestions" role="listbox" className="ac-panel">
-                      {filteredLib.slice(0, 10).length === 0 && (<div className="ac-empty">Nessun esercizio trovato</div>)}
-                      {filteredLib.slice(0, 10).map((item, idx) => (
-                        <div
-                          key={item.name}
-                          role="option"
-                          aria-selected={idx === activeSug}
-                          className={"ac-item" + (idx === activeSug ? " active" : "")}
-                          onMouseDown={(e) => { e.preventDefault(); addExerciseFromCatalog(item); }}
-                          onMouseEnter={() => setActiveSug(idx)}
-                        >
-                          {highlightMatch(item.name, q)}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+              {/* Barra inserimento */}
+              <div className="grid" style={{gridTemplateColumns:"1fr .8fr .8fr 1fr auto", gap:8}}>
+                <input
+                  className="input"
+                  placeholder="Cerca esercizio…"
+                  value={q}
+                  onChange={e => setQ(e.target.value)}
+                />
 
-                <select className="input" value={fGroup} onChange={(e) => setFGroup(e.target.value)}>
+                <select className="input" value={fGroup} onChange={e => setFGroup(e.target.value)}>
                   <option value="">Tutti i gruppi</option>
                   {groups.map(g => <option key={g} value={g}>{g}</option>)}
                 </select>
 
-                <select className="input" value={fEquip} onChange={(e) => setFEquip(e.target.value)}>
+                <select className="input" value={fEquip} onChange={e => setFEquip(e.target.value)}>
                   <option value="">Tutti gli attrezzi</option>
                   {equips.map(g => <option key={g} value={g}>{g}</option>)}
                 </select>
 
                 <select
                   className="input"
-                  value=""
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (!val) return;
-                    const item = EXERCISE_CATALOG.find(x => x.name === val);
-                    if (item) addExerciseFromCatalog(item);
-                    e.target.value = "";
-                  }}
+                  value={selectedId}
+                  onChange={e => setSelectedId(e.target.value)}
                 >
                   <option value="">Elenco esercizi</option>
-                  {filteredLib.map(item => (
-                    <option key={item.name} value={item.name}>{item.name}</option>
+                  {lib.map(ex => (
+                    <option key={ex.id} value={ex.id}>{ex.name}</option>
                   ))}
                 </select>
 
-                <button className="btn btn-primary" onClick={() => addExerciseFromCatalog(filteredLib[0])} disabled={!filteredLib.length}>
+                <button className="btn btn-primary" onClick={addSelectedExercise} disabled={!selectedId}>
                   Aggiungi
                 </button>
               </div>
 
-              {/* Lista esercizi del giorno (card semplificata) */}
+              {/* Elenco esercizi del giorno (card semplificata) */}
               <ul className="ex-list">
-                {draft.days[dayIdx]?.exercises?.map((ex, i) => (
-                  <li key={ex.id} className="ex-row-simple">
-                    <div className="ex-title">{ex.name || "Esercizio"}</div>
-                    <div className="ex-rowA">
-                      <label className="label">Serie</label>
-                      <input
-                        ref={ex.id === lastAddedIdRef.current ? (el) => (lastAddedSetsRef.current = el) : undefined}
-                        className="input"
-                        type="number"
-                        min={1}
-                        value={ex.sets ?? 3}
-                        onChange={(e) => updateExercise(i, { sets: Number(e.target.value) })}
-                      />
-                      <label className="label">Ripetizioni</label>
-                      <input
-                        className="input"
-                        type="number"
-                        min={1}
-                        value={ex.reps ?? 10}
-                        onChange={(e) => updateExercise(i, { reps: Number(e.target.value) })}
-                      />
+                {draft.days[dayIdx]?.entries?.map((en, i) => (
+                  <li key={i} className="card" style={{padding:"10px 10px"}}>
+                    {/* Header: nome esercizio */}
+                    <div className="chip" style={{marginBottom:8}}>
+                      {en.exerciseName || "Esercizio"}
+                      {en.muscleGroup ? <span className="chip muted">{en.muscleGroup}</span> : null}
+                      {en.equipment ? <span className="chip muted">{en.equipment}</span> : null}
                     </div>
-                    <div className="ex-rowB">
-                      <label className="label">Kg (opz.)</label>
-                      <input
-                        className="input"
-                        type="number"
-                        value={ex.kg ?? ""}
-                        onChange={(e) => {
-                          const v = e.target.value === "" ? null : Number(e.target.value);
-                          updateExercise(i, { kg: v });
-                        }}
-                        placeholder="—"
-                      />
-                      <label className="label">Note (opz.)</label>
-                      <input
-                        className="input"
-                        value={ex.note || ""}
-                        onChange={(e) => updateExercise(i, { note: e.target.value })}
-                        placeholder="Aggiungi una nota"
-                      />
-                      <button className="btn" onClick={() => removeExercise(i)} title="Rimuovi">🗑️</button>
+
+                    {/* Row A: Serie / Reps */}
+                    <div className="grid" style={{gridTemplateColumns:"repeat(4, minmax(0, 1fr))", gap:8}}>
+                      <div>
+                        <div className="label">Serie</div>
+                        <input
+                          className="input"
+                          type="number"
+                          value={en.sets ?? 3}
+                          onChange={e => updateEntry(i, { sets: Number(e.target.value) || 0 })}
+                          placeholder="3"
+                          min={0}
+                        />
+                      </div>
+                      <div>
+                        <div className="label">Ripetizioni</div>
+                        <input
+                          className="input"
+                          type="number"
+                          value={en.reps ?? 10}
+                          onChange={e => updateEntry(i, { reps: Number(e.target.value) || 0 })}
+                          placeholder="10"
+                          min={0}
+                        />
+                      </div>
+                      <div>
+                        <div className="label">Kg (opz.)</div>
+                        <input
+                          className="input"
+                          type="number"
+                          value={en.weight_kg ?? ""}
+                          onChange={e => {
+                            const raw = e.target.value;
+                            updateEntry(i, { weight_kg: raw === "" ? null : Number(raw) });
+                          }}
+                          placeholder="es. 20"
+                          min={0}
+                        />
+                      </div>
+                      <div>
+                        <div className="label">Note (opz.)</div>
+                        <input
+                          className="input"
+                          type="text"
+                          value={en.notes ?? ""}
+                          onChange={e => updateEntry(i, { notes: e.target.value })}
+                          placeholder="Tempi, tecnica, RIR…"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Azioni */}
+                    <div style={{display:"flex", justifyContent:"flex-end", marginTop:8}}>
+                      <button className="btn" onClick={() => removeEntry(i)}>🗑️</button>
                     </div>
                   </li>
                 ))}
-                {draft.days[dayIdx]?.exercises?.length === 0 && (
+                {(!draft.days[dayIdx]?.entries || draft.days[dayIdx].entries.length === 0) && (
                   <div className="muted">Nessun esercizio in questo giorno.</div>
                 )}
               </ul>
@@ -364,38 +420,28 @@ export default function TemplateBuilder({ user, templates, saveTemplate, deleteT
           )}
         </div>
 
-        {/* DESTRA: RIEPILOGO SERIE */}
-        <aside className="card summary-panel">
-          <div className="font-semibold" style={{ marginBottom: 8 }}>📊 Serie per gruppo</div>
-          {(!summary.rows.length) ? (
-            <div className="muted">Aggiungi esercizi per vedere il riepilogo.</div>
-          ) : (
-            <ul className="sum-list">
-              {summary.rows.map(r => (
-                <li key={r.group} className="sum-row">
-                  <span className="sum-group">{r.group}</span>
-                  <span className="sum-sets">{r.sets}</span>
-                </li>
+        {/* DESTRA: riepilogo serie per gruppo */}
+        <div className="card">
+          <div className="font-semibold" style={{marginBottom:8}}>Riepilogo serie per gruppo</div>
+          {Object.keys(seriesByGroup).length === 0 && <div className="muted">Nessun dato.</div>}
+          <div style={{display:"flex", flexDirection:"column", gap:6}}>
+            {Object.entries(seriesByGroup)
+              .sort((a,b) => a[0].localeCompare(b[0], "it"))
+              .map(([group, count]) => (
+                <div key={group} style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+                  <span>{group}</span>
+                  <span className="pill"><strong>{count}</strong> serie</span>
+                </div>
               ))}
-            </ul>
-          )}
-          <hr style={{ border: "none", borderTop: "1px dashed #e2e8f0", margin: "10px 0" }} />
-          <div className="sum-total">Totale serie: <b>{summary.total}</b></div>
-        </aside>
+          </div>
+          <hr style={{border:"none", borderTop:"1px dashed #e2e8f0", margin:"12px 0"}}/>
+          <div style={{display:"flex", justifyContent:"space-between"}}>
+            <span className="font-semibold">Totale serie</span>
+            <span className="pill"><strong>{seriesTotal}</strong></span>
+          </div>
+        </div>
       </div>
     </div>
   );
-}
-
-// evidenzia match nell’autocomplete
-function highlightMatch(name, q) {
-  if (!q) return name;
-  const s = q.trim();
-  const i = name.toLowerCase().indexOf(s.toLowerCase());
-  if (i < 0) return name;
-  const a = name.slice(0, i);
-  const b = name.slice(i, i + s.length);
-  const c = name.slice(i + s.length);
-  return (<>{a}<span style={{ fontWeight: 600 }}>{b}</span>{c}</>);
 }
 // === END: src/pages/TemplateBuilder.jsx ===
