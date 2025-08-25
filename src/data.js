@@ -132,3 +132,19 @@ export function detectGroup(name){
   const found = EXERCISE_CATALOG.find(e => e.name.toLowerCase() === n);
   return found?.muscle ?? "Altro";
 }
+// ====== Helpers compatibilità: workout logs ======
+// Restituisce un nuovo array con il log aggiunto.
+// Esempio payload:
+// { user_id, date:'YYYY-MM-DD', entries:[{ exerciseName, sets, reps, weight_kg }], note }
+export function addWorkoutLog(existingLogs, payload) {
+  const list = Array.isArray(existingLogs) ? [...existingLogs] : [];
+  const id =
+    (typeof crypto !== "undefined" && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : String(Date.now());
+  list.push({ id, ...payload });
+  return list;
+}
+
+// Alias storico usato in alcune versioni del codice
+export const pushWorkoutLog = addWorkoutLog;
