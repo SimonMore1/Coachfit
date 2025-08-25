@@ -1,8 +1,19 @@
 // src/data.js
+// Espone le stesse API sia in locale che su Supabase.
+// In più riesporta le costanti dal catalogo (utils.js) così i componenti importano tutto da qui.
+
 import { supabase, hasCloud } from "./lib/supabase";
 
-// Re-export: espone da data.js le costanti che vivono in utils.js
-export { EXERCISE_LIBRARY, EXERCISE_CATALOG, detectGroup, MUSCLE_GROUPS } from "./utils.js";
+// Re-export: TUTTO ciò che i componenti si aspettano dal vecchio data.js
+export {
+  EXERCISE_LIBRARY,
+  EXERCISE_CATALOG,
+  EXERCISE_NAMES,
+  EQUIPMENTS,
+  MUSCLE_GROUPS,
+  detectGroup,
+  capWords
+} from "./utils.js";
 
 // ------- Helpers locali (fallback) -------
 const LS_KEYS = {
@@ -29,7 +40,7 @@ const normTpl = (row) => ({
   updated_at: row.updated_at || null,
 });
 
-// ------- TEMPLATES -------
+// ======= TEMPLATES =======
 
 export async function loadTemplates(ownerId) {
   if (hasCloud()) {
@@ -41,17 +52,15 @@ export async function loadTemplates(ownerId) {
     if (error) throw error;
     return (data || []).map(normTpl);
   }
-  // locale
   const all = readLS(LS_KEYS.templates, []);
   return all.filter(t => t.owner_id === ownerId);
 }
 
 export async function saveTemplate(ownerId, tpl) {
-  // tpl: {id?, name, days:[...]}
   const payload = {
     id: tpl.id || undefined,
     owner_id: ownerId,
-    name: tpl.name?.trim() || "Nuova scheda",
+    name: (tpl.name ?? "").trim() || "Nuova scheda",
     days: Array.isArray(tpl.days) ? tpl.days : [],
   };
 
@@ -116,7 +125,7 @@ export async function duplicateTemplate(ownerId, templateId) {
   return saveTemplate(ownerId, clone);
 }
 
-// ------- ACTIVE PLAN -------
+// ======= ACTIVE PLAN =======
 
 export async function getActivePlanForUser(ownerId) {
   if (hasCloud()) {
@@ -127,7 +136,7 @@ export async function getActivePlanForUser(ownerId) {
       .limit(1)
       .maybeSingle();
     if (error) throw error;
-    return data || null; // {id, owner_id, template_id, day_index}
+    return data || null;
   }
   return readLS(LS_KEYS.active, null);
 }
@@ -150,15 +159,10 @@ export async function setActivePlanForUser(ownerId, templateId, dayIndex = 0) {
   return rec;
 }
 
-// ------- WORKOUT LOGS -------
+// ======= WORKOUT LOGS =======
 
 export async function addWorkoutLog(ownerId, dateISO, entries) {
-  // entries: array di set completati per il giorno
-  const payload = {
-    owner_id: ownerId,
-    date: dateISO,          // 'YYYY-MM-DD'
-    entries: entries || [], // JSONB su supabase
-  };
+  const payload = { owner_id: ownerId, date: dateISO, entries: entries || [] };
 
   if (hasCloud()) {
     const { data, error } = await supabase
@@ -191,8 +195,7 @@ export async function getWorkoutLogs(ownerId, fromISO, toISO) {
     .sort((a, b) => (a.date < b.date ? -1 : 1));
 }
 
-// ------- API di utilità opzionali (usate in alcuni punti dell’app) -------
-
+// Utility opzionale
 export async function renameTemplate(ownerId, templateId, newName) {
   if (hasCloud()) {
     const { data, error } = await supabase
