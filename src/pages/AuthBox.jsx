@@ -10,20 +10,39 @@ export default function AuthBox(){
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
 
+  const redirectTo = window.location.origin; // localhost o vercel, auto
+
+  function showError(e){
+    if (!e) return;
+    // Messaggi più chiari
+    if (e.message?.toLowerCase?.().includes("invalid login")) {
+      setMsg("Credenziali non valide. Controlla email/password o prova 'Registrati'.");
+    } else if (e.message?.includes("User already registered")) {
+      setMsg("Email già registrata. Vai su 'Login' per entrare.");
+    } else {
+      setMsg(e.message);
+    }
+  }
+
   async function handleLogin(e){
     e.preventDefault();
     setLoading(true); setMsg("");
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setMsg(error.message);
+    if (error) showError(error);
     setLoading(false);
   }
 
   async function handleSignup(e){
     e.preventDefault();
     setLoading(true); setMsg("");
-    const { error } = await supabase.auth.signUp({ email, password });
-    if (error) setMsg(error.message);
-    else setMsg("Registrazione ok! Controlla l’email se è richiesta conferma, poi ricarica.");
+    const { error } = await supabase.auth.signUp({
+      email, password,
+      options: { emailRedirectTo: redirectTo } // <— IMPORTANTE per le email
+    });
+    if (error) showError(error);
+    else setMsg("Registrazione eseguita! "
+      + "Se la conferma email è attiva, controlla la casella e clicca il link. "
+      + "Altrimenti sei già pronto: passa su 'Login' ed entra.");
     setLoading(false);
   }
 
@@ -32,12 +51,29 @@ export default function AuthBox(){
     setLoading(true); setMsg("");
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: window.location.origin },
+      options: { emailRedirectTo: redirectTo }
     });
-    if (error) setMsg(error.message);
-    else setMsg("Ti ho inviato il link via email. Aprilo e tornerai qui loggato.");
+    if (error) showError(error);
+    else setMsg("Ti ho inviato un link via email. Aprilo e tornerai qui già loggato.");
     setLoading(false);
   }
+
+  async function resend(){
+    setLoading(true); setMsg("");
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email,
+      options: { emailRedirectTo: redirectTo }
+    });
+    if (error) showError(error);
+    else setMsg("Email di conferma reinviata (controlla anche SPAM).");
+    setLoading(false);
+  }
+
+  const onSubmit =
+    mode==="login"   ? handleLogin :
+    mode==="signup"  ? handleSignup :
+                       handleMagic;
 
   return (
     <div className="card" style={{maxWidth: 440, margin: "60px auto"}}>
@@ -49,7 +85,7 @@ export default function AuthBox(){
         <button className={`pill ${mode==="magic"?"active":""}`} onClick={()=>setMode("magic")}>Magic Link</button>
       </div>
 
-      <form onSubmit={mode==="login" ? handleLogin : mode==="signup" ? handleSignup : handleMagic} className="grid" style={{gap:10}}>
+      <form onSubmit={onSubmit} className="grid" style={{gap:10}}>
         <input
           className="input"
           type="email"
@@ -63,7 +99,7 @@ export default function AuthBox(){
           <input
             className="input"
             type="password"
-            placeholder="Password"
+            placeholder="Password (min 6)"
             value={password}
             onChange={e=>setPassword(e.target.value)}
             minLength={6}
@@ -79,6 +115,18 @@ export default function AuthBox(){
         <button className="btn btn-primary" type="submit" disabled={loading}>
           {loading ? "Attendi…" : mode==="login" ? "Entra" : mode==="signup" ? "Crea account" : "Invia magic link"}
         </button>
+
+        {mode==="signup" && (
+          <button
+            className="btn"
+            type="button"
+            onClick={resend}
+            disabled={loading || !email}
+            style={{marginTop:4}}
+          >
+            Reinvia email di conferma
+          </button>
+        )}
 
         {msg && <div className="muted" style={{marginTop:8}}>{msg}</div>}
       </form>
